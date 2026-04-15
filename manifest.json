@@ -3,7 +3,7 @@
   "name": "CS2 Recon",
   "short_name": "CS2 Recon",
   "version": "1.0.0",
-  "description": "See CS2 stats on any Steam profile instantly. Shows FACEIT rank & ELO, CS Rating, competitive & wingman ranks, Leetify ratings, account age, and friend code — without leaving Steam.",
+  "description": "CS2 stats on every Steam profile. FACEIT rank, CS Rating, competitive ranks, Leetify ratings, account age and friend code.",
   "permissions": [],
   "host_permissions": [
     "https://steamcommunity.com/*",
