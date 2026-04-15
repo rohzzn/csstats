@@ -1,5 +1,6 @@
 (function () {
   const ROOT_ID  = "spx-cs2-profile-intel";
+  const MATCHES_ID = "spx-cs2-matches-intel";
   const CLIPS_ID = "spx-cs2-clips-intel";
   const DISPLAY_ORDER = ["steam", "faceit", "leetify", "csstats"];
 
@@ -7,6 +8,7 @@
     steamId: null,
     profileUrl: null,
     root: null,
+    matchesRoot: null,
     clipsRoot: null
   };
 
@@ -92,11 +94,17 @@
       context.target.prepend(root);
     }
 
+    const matchesRoot = ensureRoot(MATCHES_ID);
+    state.matchesRoot = matchesRoot;
+    if (!context.target.contains(matchesRoot)) {
+      root.insertAdjacentElement("afterend", matchesRoot);
+    }
+
     // Clips section goes directly after the stats section
     const clipsRoot = ensureRoot(CLIPS_ID);
     state.clipsRoot = clipsRoot;
     if (!context.target.contains(clipsRoot)) {
-      root.insertAdjacentElement("afterend", clipsRoot);
+      matchesRoot.insertAdjacentElement("afterend", clipsRoot);
     }
 
     renderLoading(root);
@@ -126,6 +134,7 @@
       }
 
       renderBundle(state.root, response);
+      renderMatchesSection(state.matchesRoot, response);
       renderClipsSection(state.clipsRoot, response);
     } catch (error) {
       renderFatal(state.root, error.message || "The extension could not load provider data.");
@@ -165,8 +174,14 @@
     // Merge GC commendations into the Steam row so they appear side-by-side
     const gcProvider    = providerMap.get("gc");
     const steamProvider = providerMap.get("steam");
-    if (steamProvider && gcProvider?.state === "ready" && gcProvider.commendations?.length) {
-      providerMap.set("steam", { ...steamProvider, commendations: gcProvider.commendations });
+    if (steamProvider && gcProvider?.state === "ready") {
+      providerMap.set("steam", {
+        ...steamProvider,
+        metrics: mergeSteamMetrics(steamProvider.metrics, gcProvider.levelMetric),
+        commendations: Array.isArray(gcProvider.commendations) && gcProvider.commendations.length
+          ? gcProvider.commendations
+          : Array.isArray(steamProvider.commendations) ? steamProvider.commendations : []
+      });
     }
 
     const providers = DISPLAY_ORDER
@@ -190,6 +205,32 @@
       <div class="profile_customization_block">
         <div class="showcase_content_bg spx-shell">
           <div class="spx-row-list">${providers.map((provider) => renderProviderRow(provider)).join("")}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderMatchesSection(root, bundle) {
+    if (!root) return;
+
+    const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
+    const matchesProvider = providers.find((provider) => provider.id === "matches");
+    const matches = (matchesProvider?.state === "ready" && Array.isArray(matchesProvider.matches))
+      ? matchesProvider.matches
+      : [];
+
+    if (!matches.length) {
+      root.innerHTML = "";
+      return;
+    }
+
+    root.innerHTML = `
+      <div class="profile_customization_header spx-showcase-header">Matches</div>
+      <div class="profile_customization_block">
+        <div class="showcase_content_bg spx-shell">
+          <div class="spx-match-grid">
+            ${matches.map((match) => renderMatchCard(match)).join("")}
+          </div>
         </div>
       </div>
     `;
@@ -275,16 +316,24 @@
     const isReady = provider.state === "ready" && (metrics.length || commendations.length || competitiveRanks.length || wingmanRanks.length);
 
     const body = isReady
-      ? `
-          <div class="spx-stat-line">
-            ${rankIcon}
-            ${metrics.length ? `<div class="spx-metric-grid">${metrics.map(renderMetric).join("")}</div>` : ""}
-            ${metrics.length && commendations.length ? `<div class="spx-stat-divider"></div>` : ""}
-            ${commendations.length ? renderCommendationStrip(commendations) : ""}
-            ${note}
-          </div>
-          ${(wingmanRanks.length || competitiveRanks.length) ? renderRankStrip([...wingmanRanks, ...competitiveRanks]) : ""}
-        `
+      ? provider.id === "steam"
+        ? renderSteamProviderBody({
+            rankIcon,
+            metrics,
+            commendations,
+            note,
+            ranks: [...wingmanRanks, ...competitiveRanks]
+          })
+        : `
+            <div class="spx-stat-line">
+              ${rankIcon}
+              ${metrics.length ? `<div class="spx-metric-grid">${metrics.map(renderMetric).join("")}</div>` : ""}
+              ${metrics.length && commendations.length ? `<div class="spx-stat-divider"></div>` : ""}
+              ${commendations.length ? renderCommendationStrip(commendations) : ""}
+              ${note}
+            </div>
+            ${(wingmanRanks.length || competitiveRanks.length) ? renderRankStrip([...wingmanRanks, ...competitiveRanks]) : ""}
+          `
       : `<div class="spx-stat-line">
           ${rankIcon}
           ${note || `<div class="spx-provider-note">Stats are not available right now.</div>`}
@@ -294,6 +343,34 @@
       <article class="spx-provider-row spx-state-${escapeAttribute(provider.state)} spx-provider-${escapeAttribute(provider.id)}">
         ${body}
       </article>
+    `;
+  }
+
+  function renderSteamProviderBody({ rankIcon, metrics, commendations, note, ranks }) {
+    const levelMetric = metrics.find((metric) => metric?.kind === "cslevel" || metric?.label === "CS Level") || null;
+    const friendCodeMetric = metrics.find((metric) => metric?.label === "Friend Code") || null;
+    const secondaryMetrics = metrics.filter((metric) => metric !== levelMetric && metric !== friendCodeMetric);
+    if (friendCodeMetric) {
+      secondaryMetrics.push(friendCodeMetric);
+    }
+
+    const hasPrimary = Boolean(levelMetric) || commendations.length > 0;
+    const hasSecondary = secondaryMetrics.length > 0;
+
+    return `
+      <div class="spx-stat-line spx-stat-line-steam">
+        ${rankIcon}
+        ${hasPrimary ? `
+          <div class="spx-steam-primary">
+            ${levelMetric ? `<div class="spx-metric-grid spx-metric-grid-steam-primary">${renderMetric(levelMetric)}</div>` : ""}
+            ${levelMetric && commendations.length ? `<div class="spx-stat-divider"></div>` : ""}
+            ${commendations.length ? renderCommendationStrip(commendations) : ""}
+          </div>
+        ` : ""}
+        ${hasSecondary ? `<div class="spx-metric-grid spx-steam-secondary">${secondaryMetrics.map(renderMetric).join("")}</div>` : ""}
+      </div>
+      ${note}
+      ${ranks.length ? renderRankStrip(ranks) : ""}
     `;
   }
 
@@ -324,6 +401,10 @@
   }
 
   function renderMetric(metric) {
+    if (metric?.kind === "cslevel") {
+      return renderLevelMetric(metric);
+    }
+
     if (metric.label === "Premier" || metric.label === "Peak Premier") {
       return renderPremierMetric(metric);
     }
@@ -337,6 +418,20 @@
         <div class="spx-metric-label">${escapeHtml(metric.label)}</div>
         <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
         ${metric.meta ? `<div class="spx-metric-meta">${escapeHtml(metric.meta)}</div>` : ""}
+      </div>
+    `;
+  }
+
+  function renderLevelMetric(metric) {
+    const image = metric.image
+      ? `<img class="spx-level-image" src="${escapeAttribute(metric.image)}" alt="${escapeAttribute(metric.label || "CS Level")}" title="${escapeAttribute(metric.label || "CS Level")}" />`
+      : "";
+
+    return `
+      <div class="spx-metric spx-metric-level">
+        <div class="spx-level-badge">
+          ${image}
+        </div>
       </div>
     `;
   }
@@ -357,10 +452,22 @@
   function renderPremierMetric(metric) {
     const rawNum = parseInt(String(metric.value || "").replace(/,/g, ""), 10);
     const tier = getPremierTier(rawNum);
+    const isPeak = metric.label === "Peak Premier";
+    const badgeClass = isPeak ? "spx-premier-badge spx-premier-badge-peak" : "spx-premier-badge";
+    const icon = isPeak
+      ? `
+        <div class="spx-premier-icon-wrap" aria-hidden="true">
+          <svg class="spx-premier-icon" viewBox="0 0 16 16" fill="none">
+            <path d="M8 1.8 9.8 5.45l4.02.58-2.91 2.83.69 4-3.6-1.89-3.6 1.89.69-4L2.18 6.03l4.02-.58L8 1.8Z" fill="currentColor"/>
+          </svg>
+        </div>
+      `
+      : "";
+
     return `
-      <div class="spx-metric spx-metric-premier spx-premier-${tier}">
-        <div class="spx-metric-label">${escapeHtml(metric.label)}</div>
-        <div class="spx-premier-badge">
+      <div class="spx-metric spx-metric-premier spx-premier-${tier}" title="${escapeAttribute(metric.label)}">
+        <div class="${badgeClass}">
+          ${icon}
           <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
         </div>
       </div>
@@ -385,6 +492,88 @@
       message: providerId === "faceit" ? "No FACEIT profile was found for this Steam account." : "Stats are not available right now.",
       metrics: []
     };
+  }
+
+  function mergeSteamMetrics(metrics, levelMetric) {
+    const base = Array.isArray(metrics) ? [...metrics] : [];
+    if (!levelMetric) {
+      return base;
+    }
+
+    if (base.some((metric) => metric?.kind === "cslevel" || metric?.label === "CS Level")) {
+      return base;
+    }
+
+    base.push(levelMetric);
+    return base;
+  }
+
+  function renderMatchCard(match) {
+    const icon = match.icon
+      ? `<img class="spx-match-map-icon" src="${escapeAttribute(match.icon)}" alt="${escapeAttribute(match.mapLabel || "Map")}" />`
+      : "";
+
+    const score = match.scoreLabel
+      ? `<div class="spx-match-score">${escapeHtml(match.scoreLabel)}</div>`
+      : "";
+
+    const kda = match.kdaLabel
+      ? `<div class="spx-match-kda">${escapeHtml(match.kdaLabel)}</div>`
+      : "";
+
+    const chips = [
+      match.scoreValue ? `<div class="spx-match-chip">Score ${escapeHtml(match.scoreValue)}</div>` : "",
+      match.mvpValue ? `<div class="spx-match-chip">MVP ${escapeHtml(match.mvpValue)}</div>` : "",
+      match.durationLabel ? `<div class="spx-match-chip">${escapeHtml(match.durationLabel)}</div>` : ""
+    ].filter(Boolean).join("");
+
+    return `
+      <article class="spx-match-card">
+        <div class="spx-match-card-top">
+          <div class="spx-match-map-wrap">
+            ${icon}
+            <div class="spx-match-map-copy">
+              <div class="spx-match-map-name">${escapeHtml(match.mapLabel || "Unknown Map")}</div>
+              <div class="spx-match-time">${escapeHtml(formatMatchTime(match.playedAt))}</div>
+            </div>
+          </div>
+          <div class="spx-match-result spx-match-result-${escapeAttribute(match.resultTone || "neutral")}">${escapeHtml(match.resultLabel || "Match")}</div>
+        </div>
+        ${(score || kda) ? `<div class="spx-match-card-main">${score}${kda}</div>` : ""}
+        ${chips ? `<div class="spx-match-chip-row">${chips}</div>` : ""}
+      </article>
+    `;
+  }
+
+  function formatMatchTime(timestamp) {
+    const numeric = Number(timestamp);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return "Recent match";
+    }
+
+    const playedAt = new Date(numeric * 1000);
+    const now = Date.now();
+    const deltaMs = now - playedAt.getTime();
+    const deltaMinutes = Math.max(1, Math.round(deltaMs / 60000));
+
+    if (deltaMinutes < 60) {
+      return `${deltaMinutes}m ago`;
+    }
+
+    const deltaHours = Math.round(deltaMinutes / 60);
+    if (deltaHours < 24) {
+      return `${deltaHours}h ago`;
+    }
+
+    const deltaDays = Math.round(deltaHours / 24);
+    if (deltaDays < 7) {
+      return `${deltaDays}d ago`;
+    }
+
+    return playedAt.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric"
+    });
   }
 
   function escapeHtml(value) {

@@ -33,7 +33,7 @@ Search for **CS2 Recon** or install directly from the store listing.
 
 ## Game Coordinator server (optional — unlocks stats on every profile)
 
-The **CS2 row** requires a small Node.js server running on your machine. It connects to the CS2 Game Coordinator using a spare Steam account and exposes a local HTTP API the extension calls. This is exactly how sites like [csst.at](https://csst.at) get stats on every profile.
+The **CS2 row** requires a small Node.js server. It can run on your machine or on a host like Railway. It connects to the CS2 Game Coordinator using a spare Steam account and exposes an HTTP API the extension calls.
 
 ### Prerequisites
 
@@ -55,6 +55,13 @@ copy .env.example .env
 npm start
 ```
 
+For Railway:
+
+- Set the service root to `server/`
+- Set `STEAM_BOT_USERNAME`, `STEAM_BOT_PASSWORD`, and optionally `STEAM_BOT_SHARED_SECRET` as Railway environment variables
+- Do not hardcode Railway's assigned `PORT`; Railway injects it automatically
+- Keep `HOST=0.0.0.0` so Railway can reach the process
+
 On first run, Steam may prompt for a Steam Guard code sent to your email. Enter it in the terminal. After that the server remembers the session.
 
 If the bot account has a **Mobile Authenticator**, set `STEAM_BOT_SHARED_SECRET` in `.env` and the server will generate TOTP codes automatically (requires `npm install steam-totp`).
@@ -73,6 +80,12 @@ Extension                  Local server (port 3000)        Valve Game Coordinato
 The server keeps a persistent GC session and processes one request at a time with a 500 ms throttle to respect Valve's rate limits. Responses are cached for 5 minutes.
 
 The extension automatically detects whether the server is running. If it is not, the CS2 row is silently hidden — all other rows still work normally.
+
+You can verify the server quickly with:
+
+- `/`
+- `/healthz`
+- `/status`
 
 ### Running on startup (optional)
 

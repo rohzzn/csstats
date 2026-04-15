@@ -11,7 +11,7 @@ const SETTINGS = Object.freeze({
   cacheTtlMs: 5 * 60 * 1000
 });
 
-const PROVIDER_ORDER = ["steam", "gc", "faceit", "leetify", "csstats", "allstar"];
+const PROVIDER_ORDER = ["steam", "gc", "faceit", "leetify", "csstats", "matches", "allstar"];
 const providerCache = new Map();
 const inflightRequests = new Map();
 
@@ -42,6 +42,7 @@ async function buildProfileBundle(message) {
     faceit:  () => getCachedProvider("faceit",  steamId, settings, force, () => fetchFaceitData(steamId, settings)),
     leetify: () => getCachedProvider("leetify", steamId, settings, force, () => fetchLeetifyData(steamId, settings)),
     csstats: () => getCachedProvider("csstats", steamId, settings, force, () => fetchCsStatsData(steamId, settings)),
+    matches: () => getCachedProvider("matches", steamId, settings, force, () => fetchMatchesData(steamId, settings)),
     allstar: () => getCachedProvider("allstar", steamId, settings, force, () => fetchAllstarData(steamId, settings))
   };
 
@@ -289,6 +290,7 @@ async function fetchGcData(steamId, settings) {
     const friendly = asNumber(data.commend_friendly);
     const teaching = asNumber(data.commend_teaching);
     const leader   = asNumber(data.commend_leader);
+    const playerLevel = asNumber(data.player_level);
 
     // Premier — currently always null (Valve restricted), wired up for when it returns
     const premier     = asNumber(data.premier_rating);
@@ -330,7 +332,16 @@ async function fetchGcData(steamId, settings) {
       premier !== null ? makeMetric("Premier", formatInteger(premier)) : null
     ]);
 
-    if (!commendations.length && !metrics.length && !wingmanRanks.length && !competitiveRanks.length) {
+    const levelMetric = playerLevel !== null
+      ? {
+          kind: "cslevel",
+          label: "CS Level",
+          value: formatInteger(playerLevel),
+          image: chrome.runtime.getURL(`levels/${Math.max(1, Math.min(40, Math.round(playerLevel)))}.png`)
+        }
+      : null;
+
+    if (!commendations.length && !metrics.length && !wingmanRanks.length && !competitiveRanks.length && !levelMetric) {
       return makeProviderResult("gc", "not_found", {});
     }
 
@@ -339,6 +350,7 @@ async function fetchGcData(steamId, settings) {
       url: steamProfileUrl,
       commendations,
       metrics,
+      levelMetric,
       competitiveRanks,
       wingmanRanks,
       details: []
@@ -346,6 +358,34 @@ async function fetchGcData(steamId, settings) {
   } catch (_err) {
     // Server not running — silently hide this row
     return makeProviderResult("gc", "disabled", {});
+  }
+}
+
+async function fetchMatchesData(steamId, settings) {
+  const serverUrl = settings.gcServerUrl;
+  if (!serverUrl) return makeProviderResult("matches", "disabled", { matches: [] });
+
+  try {
+    const data = await fetchJson(`${serverUrl}/matches/${steamId}`, {
+      headers: { Accept: "application/json" }
+    });
+
+    if (!data.ok || !data.found || !Array.isArray(data.matches)) {
+      return makeProviderResult("matches", "not_found", { matches: [] });
+    }
+
+    const matches = data.matches
+      .map((match) => normalizeRecentMatch(match))
+      .filter(Boolean)
+      .slice(0, 6);
+
+    if (!matches.length) {
+      return makeProviderResult("matches", "not_found", { matches: [] });
+    }
+
+    return makeProviderResult("matches", "ready", { matches });
+  } catch (_err) {
+    return makeProviderResult("matches", "disabled", { matches: [] });
   }
 }
 
@@ -389,8 +429,8 @@ async function fetchLeetifyData(steamId, settings) {
   const wingmanRanks = resolveLeetifyWingmanRanks(profile?.ranks?.wingman_competitive ?? profile?.ranks?.wingman);
 
   const metrics = compact([
-    makeMetric("Premier", formatInteger(premier)),
     makeMetric("Peak Premier", formatInteger(peakPremier)),
+    makeMetric("Premier", formatInteger(premier)),
     makeMetric("Aim", formatDecimal(aim, 1)),
     makeMetric("Positioning", formatDecimal(positioning, 1)),
     makeMetric("Utility", formatDecimal(utility, 1)),
@@ -703,9 +743,191 @@ function providerTitle(id) {
     steam: "Steam",
     csstats: "CSStats",
     gc: "CS2",
+    matches: "Matches",
     allstar: "AllStar"
   }[id] || id;
 }
+
+function normalizeRecentMatch(match) {
+  if (!match || typeof match !== "object") {
+    return null;
+  }
+
+  const mapKey = normalizeMapAssetKey(match.map);
+  const scoreFor = asNumber(match.score_for);
+  const scoreAgainst = asNumber(match.score_against);
+  const result = resolveRecentMatchResult(match.result, scoreFor, scoreAgainst);
+
+  return {
+    id: String(match.match_id || `${mapKey || "match"}-${match.match_time || 0}`),
+    mapKey,
+    mapLabel: formatMatchMapName(mapKey || match.map),
+    icon: resolveMapIcon(mapKey),
+    playedAt: asNumber(match.match_time),
+    resultLabel: result.label,
+    resultTone: result.tone,
+    scoreLabel: formatMatchScore(scoreFor, scoreAgainst),
+    kdaLabel: formatMatchKda(match.kills, match.assists, match.deaths),
+    scoreValue: formatInteger(match.score),
+    mvpValue: formatInteger(match.mvps),
+    durationLabel: formatDuration(match.duration_seconds)
+  };
+}
+
+function normalizeMapAssetKey(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/-+/g, "_") || null;
+}
+
+function resolveMapIcon(mapKey) {
+  if (!mapKey) {
+    return "";
+  }
+
+  if (DEFAULT_MAP_ICON_SET.has(mapKey)) {
+    return chrome.runtime.getURL(`maps-icons/${mapKey}.svg`);
+  }
+
+  if (COMMUNITY_MAP_ICON_SET.has(mapKey)) {
+    return chrome.runtime.getURL(`maps-icons/community/${mapKey}.svg`);
+  }
+
+  return "";
+}
+
+function formatMatchMapName(value) {
+  const mapKey = normalizeMapAssetKey(value);
+  if (!mapKey) {
+    return "Unknown Map";
+  }
+
+  const explicit = {
+    ar_baggage: "Baggage",
+    ar_pool_day: "Pool Day",
+    ar_shoots: "Shoots",
+    cs_agency: "Agency",
+    cs_italy: "Italy",
+    cs_office: "Office",
+    de_ancient: "Ancient",
+    de_anubis: "Anubis",
+    de_assembly: "Assembly",
+    de_basalt: "Basalt",
+    de_brewery: "Brewery",
+    de_dogtown: "Dogtown",
+    de_dust: "Dust",
+    de_dust2: "Dust II",
+    de_edin: "Edin",
+    de_grail: "Grail",
+    de_inferno: "Inferno",
+    de_jura: "Jura",
+    de_memento: "Memento",
+    de_mills: "Mills",
+    de_mirage: "Mirage",
+    de_nuke: "Nuke",
+    de_overpass: "Overpass",
+    de_palais: "Palais",
+    de_thera: "Thera",
+    de_train: "Train",
+    de_vertigo: "Vertigo",
+    de_whistle: "Whistle"
+  }[mapKey];
+
+  if (explicit) {
+    return explicit;
+  }
+
+  return formatCompetitiveMapName(mapKey);
+}
+
+function resolveRecentMatchResult(rawResult, scoreFor, scoreAgainst) {
+  const normalized = String(rawResult || "").trim().toLowerCase();
+  if (normalized === "win" || normalized === "loss" || normalized === "draw") {
+    return {
+      label: normalized === "win" ? "Win" : normalized === "loss" ? "Loss" : "Draw",
+      tone: normalized
+    };
+  }
+
+  if (scoreFor !== null && scoreAgainst !== null) {
+    if (scoreFor > scoreAgainst) return { label: "Win", tone: "win" };
+    if (scoreFor < scoreAgainst) return { label: "Loss", tone: "loss" };
+    return { label: "Draw", tone: "draw" };
+  }
+
+  return { label: "Match", tone: "neutral" };
+}
+
+function formatMatchScore(scoreFor, scoreAgainst) {
+  if (scoreFor === null || scoreAgainst === null) {
+    return null;
+  }
+
+  return `${Math.round(scoreFor)}:${Math.round(scoreAgainst)}`;
+}
+
+function formatMatchKda(kills, assists, deaths) {
+  const k = formatInteger(kills);
+  const a = formatInteger(assists);
+  const d = formatInteger(deaths);
+  if (!k && !a && !d) {
+    return null;
+  }
+
+  return `${k || "0"} / ${a || "0"} / ${d || "0"}`;
+}
+
+function formatDuration(value) {
+  const seconds = asNumber(value);
+  if (seconds === null || seconds <= 0) {
+    return null;
+  }
+
+  const totalMinutes = Math.round(seconds / 60);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+
+  return `${totalMinutes}m`;
+}
+
+const DEFAULT_MAP_ICON_SET = new Set([
+  "ar_baggage",
+  "ar_shoots",
+  "cs_italy",
+  "cs_office",
+  "de_ancient",
+  "de_anubis",
+  "de_dust",
+  "de_dust2",
+  "de_inferno",
+  "de_mirage",
+  "de_nuke",
+  "de_overpass",
+  "de_train",
+  "de_vertigo"
+]);
+
+const COMMUNITY_MAP_ICON_SET = new Set([
+  "ar_pool_day",
+  "cs_agency",
+  "de_assembly",
+  "de_basalt",
+  "de_brewery",
+  "de_dogtown",
+  "de_edin",
+  "de_grail",
+  "de_jura",
+  "de_memento",
+  "de_mills",
+  "de_palais",
+  "de_thera",
+  "de_whistle"
+]);
 
 function resolveFaceitRankAsset(gameData) {
   const label = String(gameData?.skill_level_label || "").trim().toLowerCase();

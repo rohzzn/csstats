@@ -38,7 +38,10 @@
         "faceit/*.svg",
         "csranks/*.svg",
         "wingman/*.svg",
-        "commendations/*.svg"
+        "commendations/*.svg",
+        "maps-icons/*.svg",
+        "maps-icons/community/*.svg",
+        "levels/*.png"
       ],
       "matches": [
         "https://steamcommunity.com/*"

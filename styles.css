@@ -44,6 +44,10 @@
   gap: 0;
 }
 
+#spx-cs2-profile-intel .spx-stat-line-steam {
+  gap: 12px;
+}
+
 /* ── FACEIT rank icon ─────────────────────────────── */
 
 #spx-cs2-profile-intel .spx-rank-image {
@@ -63,6 +67,18 @@
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 6px 0;
+}
+
+#spx-cs2-profile-intel .spx-steam-primary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  min-width: 0;
+}
+
+#spx-cs2-profile-intel .spx-steam-secondary {
+  margin-left: auto;
 }
 
 #spx-cs2-profile-intel .spx-metric {
@@ -107,16 +123,56 @@
 }
 
 #spx-cs2-profile-intel .spx-premier-badge {
-  display: inline-block;
-  margin-top: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 0;
   padding: 3px 10px 4px;
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.06);
 }
 
+#spx-cs2-profile-intel .spx-premier-badge-peak {
+  padding-left: 7px;
+  padding-right: 10px;
+}
+
 #spx-cs2-profile-intel .spx-metric-premier .spx-metric-value {
   margin-top: 0;
   font-size: 19px;
+}
+
+#spx-cs2-profile-intel .spx-premier-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: #8fa7be;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+#spx-cs2-profile-intel .spx-premier-icon {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+#spx-cs2-profile-intel .spx-level-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+}
+
+#spx-cs2-profile-intel .spx-level-image {
+  display: block;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 /* Tier: none / unranked */
@@ -276,6 +332,153 @@
   font-size: 11px;
 }
 
+/* ══════════════════════════════════════════════════
+   Matches Section  (#spx-cs2-matches-intel)
+   ══════════════════════════════════════════════════ */
+
+#spx-cs2-matches-intel.spx-showcase {
+  margin-bottom: 18px;
+}
+
+#spx-cs2-matches-intel .spx-showcase-header {
+  margin-bottom: 8px;
+}
+
+#spx-cs2-matches-intel .spx-shell {
+  padding: 4px 0 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#spx-cs2-matches-intel .spx-match-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+#spx-cs2-matches-intel .spx-match-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 6px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.015)),
+    rgba(9, 17, 25, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+#spx-cs2-matches-intel .spx-match-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#spx-cs2-matches-intel .spx-match-map-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+#spx-cs2-matches-intel .spx-match-map-icon {
+  display: block;
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  flex-shrink: 0;
+  opacity: 0.92;
+}
+
+#spx-cs2-matches-intel .spx-match-map-copy {
+  min-width: 0;
+}
+
+#spx-cs2-matches-intel .spx-match-map-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #dde4ec;
+  line-height: 1.2;
+}
+
+#spx-cs2-matches-intel .spx-match-time {
+  margin-top: 3px;
+  font-size: 10px;
+  color: #7a9ab8;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+}
+
+#spx-cs2-matches-intel .spx-match-result {
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+#spx-cs2-matches-intel .spx-match-result-win {
+  background: rgba(46, 160, 67, 0.16);
+  color: #76d08d;
+}
+
+#spx-cs2-matches-intel .spx-match-result-loss {
+  background: rgba(210, 50, 50, 0.14);
+  color: #e56a6a;
+}
+
+#spx-cs2-matches-intel .spx-match-result-draw {
+  background: rgba(100, 130, 170, 0.16);
+  color: #9db9d8;
+}
+
+#spx-cs2-matches-intel .spx-match-result-neutral {
+  background: rgba(255, 255, 255, 0.06);
+  color: #c4d2df;
+}
+
+#spx-cs2-matches-intel .spx-match-card-main {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+#spx-cs2-matches-intel .spx-match-score {
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 700;
+  color: #f3f6fa;
+}
+
+#spx-cs2-matches-intel .spx-match-kda {
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 600;
+  color: #9db3c9;
+}
+
+#spx-cs2-matches-intel .spx-match-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+#spx-cs2-matches-intel .spx-match-chip {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #8fa7be;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 /* ── Responsive ───────────────────────────────────── */
 
 @media (max-width: 910px) {
@@ -297,9 +500,28 @@
     margin-right: 12px;
   }
 
+  #spx-cs2-profile-intel .spx-stat-line-steam {
+    gap: 10px;
+  }
+
+  #spx-cs2-profile-intel .spx-steam-secondary {
+    margin-left: 0;
+    width: 100%;
+  }
+
   #spx-cs2-profile-intel .spx-rank-image {
     height: 24px;
     margin-right: 10px;
+  }
+}
+
+@media (max-width: 910px) {
+  #spx-cs2-matches-intel .spx-match-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #spx-cs2-matches-intel .spx-match-score {
+    font-size: 20px;
   }
 }
 
