@@ -4,11 +4,8 @@ const SETTINGS = Object.freeze({
   faceitApiKey: "b0ce56e8-e9a2-45e7-82ee-7310a0549d0f",
   enableLeetify: true,
   enableFaceit: true,
-  enableCsRep: true,
   enableCsStats: true,
-  enableProtectedScraping: true,
-  cacheTtlMs: 5 * 60 * 1000,
-  protectedScrapeDelayMs: 2200
+  cacheTtlMs: 5 * 60 * 1000
 });
 
 const PROVIDER_ORDER = ["steam", "faceit", "leetify", "csstats"];
@@ -40,7 +37,6 @@ async function buildProfileBundle(message) {
     steam: () => getCachedProvider("steam", steamId, settings, force, () => fetchSteamData(steamId, settings)),
     faceit: () => getCachedProvider("faceit", steamId, settings, force, () => fetchFaceitData(steamId, settings)),
     leetify: () => getCachedProvider("leetify", steamId, settings, force, () => fetchLeetifyData(steamId, settings)),
-    csrep: () => getCachedProvider("csrep", steamId, settings, force, () => fetchCsRepData(steamId, settings)),
     csstats: () => getCachedProvider("csstats", steamId, settings, force, () => fetchCsStatsData(steamId, settings))
   };
 
@@ -170,11 +166,55 @@ async function fetchSteamData(steamId, settings) {
 function getSteamFriendCode(steamId64Str) {
   const DICT = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
+  // Minimal MD5 for 8-byte input — needed for the checksum bits in the friend code.
+  // Web Crypto API does not support MD5, so this is implemented inline.
+  function md5FirstWord(accountId32) {
+    const T = [
+      0xd76aa478,0xe8c7b756,0x242070db,0xc1bdceee,0xf57c0faf,0x4787c62a,0xa8304613,0xfd469501,
+      0x698098d8,0x8b44f7af,0xffff5bb1,0x895cd7be,0x6b901122,0xfd987193,0xa679438e,0x49b40821,
+      0xf61e2562,0xc040b340,0x265e5a51,0xe9b6c7aa,0xd62f105d,0x02441453,0xd8a1e681,0xe7d3fbc8,
+      0x21e1cde6,0xc33707d6,0xf4d50d87,0x455a14ed,0xa9e3e905,0xfcefa3f8,0x676f02d9,0x8d2a4c8a,
+      0xfffa3942,0x8771f681,0x6d9d6122,0xfde5380c,0xa4beea44,0x4bdecfa9,0xf6bb4b60,0xbebfbc70,
+      0x289b7ec6,0xeaa127fa,0xd4ef3085,0x04881d05,0xd9d4d039,0xe6db99e5,0x1fa27cf8,0xc4ac5665,
+      0xf4292244,0x432aff97,0xab9423a7,0xfc93a039,0x655b59c3,0x8f0ccc92,0xffeff47d,0x85845dd1,
+      0x6fa87e4f,0xfe2ce6e0,0xa3014314,0x4e0811a1,0xf7537e82,0xbd3af235,0x2ad7d2bb,0xeb86d391
+    ];
+    const S = [
+      7,12,17,22,7,12,17,22,7,12,17,22,7,12,17,22,
+      5, 9,14,20,5, 9,14,20,5, 9,14,20,5, 9,14,20,
+      4,11,16,23,4,11,16,23,4,11,16,23,4,11,16,23,
+      6,10,15,21,6,10,15,21,6,10,15,21,6,10,15,21
+    ];
+    // Single 512-bit MD5 block for our 8-byte message
+    // bytes 0-3: accountId LE, bytes 4-7: 0x4F,0x47,0x53,0x43 ('CSGO' LE)
+    // then 0x80 padding, length 64 bits at offset 56
+    const M = new Uint32Array(16);
+    M[0] = accountId32 >>> 0;
+    M[1] = 0x4353474F;
+    M[2] = 0x00000080;
+    M[14] = 64;
+
+    let a = 0x67452301, b = 0xEFCDAB89, c = 0x98BADCFE, d = 0x10325476;
+    const A = a;
+
+    for (let i = 0; i < 64; i++) {
+      let f, g;
+      if      (i < 16) { f = (b & c) | (~b & d); g = i; }
+      else if (i < 32) { f = (d & b) | (~d & c); g = (5 * i + 1) & 15; }
+      else if (i < 48) { f = b ^ c ^ d;           g = (3 * i + 5) & 15; }
+      else             { f = c ^ (b | ~d);         g = (7 * i) & 15; }
+
+      f = (f + a + T[i] + M[g]) >>> 0;
+      a = d; d = c; c = b;
+      b = (b + ((f << S[i]) | (f >>> (32 - S[i])))) >>> 0;
+    }
+
+    return (a + A) >>> 0;
+  }
+
   function swapBytes32(n) {
-    return ((n & 0xFFn) << 24n) |
-           (((n >> 8n) & 0xFFn) << 16n) |
-           (((n >> 16n) & 0xFFn) << 8n) |
-           ((n >> 24n) & 0xFFn);
+    return ((n & 0xFFn) << 24n) | (((n >> 8n) & 0xFFn) << 16n) |
+           (((n >> 16n) & 0xFFn) << 8n) | ((n >> 24n) & 0xFFn);
   }
 
   function reverseEndianness64(val) {
@@ -184,15 +224,20 @@ function getSteamFriendCode(steamId64Str) {
   }
 
   try {
-    let steamId = BigInt(steamId64Str);
+    const steamId = BigInt(steamId64Str);
+    const accountId32 = Number(steamId & 0xFFFFFFFFn);
+    const hash = md5FirstWord(accountId32);
+
+    let h = steamId;
     let mask = 0n;
 
     for (let i = 0; i < 8; i++) {
-      const nibble = steamId & 0xFn;
-      steamId >>= 4n;
+      const nibble = h & 0xFn;
+      h >>= 4n;
+      const hashNibble = BigInt((hash >> i) & 1);
       const a = (mask << 4n) | nibble;
       mask = ((mask >> 28n) << 32n) | a;
-      mask = ((mask >> 31n) << 32n) | (a << 1n); // hash bit = 0
+      mask = ((mask >> 31n) << 32n) | (a << 1n) | hashNibble;
     }
 
     mask = reverseEndianness64(mask);
@@ -204,7 +249,8 @@ function getSteamFriendCode(steamId64Str) {
       mask >>= 5n;
     }
 
-    return "CSGO-" + codes.slice(0, 5) + "-" + codes.slice(5);
+    // CS2 format: XXXXX-YYYY (no CSGO- prefix)
+    return codes.slice(0, 5) + "-" + codes.slice(5);
   } catch (_e) {
     return null;
   }
@@ -343,69 +389,6 @@ async function fetchFaceitData(steamId, settings) {
   }
 }
 
-async function fetchCsRepData(steamId, settings) {
-  if (!settings.enableCsRep) {
-    return makeProviderResult("csrep", "disabled", {
-      message: "CSRep is disabled in the extension settings."
-    });
-  }
-
-  const profileUrl = `https://csrep.gg/player/${steamId}`;
-  const endpoints = [
-    `/api/player/${steamId}`,
-    `/api/player/${steamId}/reputation`,
-    `/api/player/${steamId}/reviews/stats`,
-    `/api/player/${steamId}/reports?tab=against`
-  ];
-
-  try {
-    const settled = await Promise.allSettled(
-      endpoints.map((endpoint) =>
-        fetchJson(`https://csrep.gg${endpoint}`, {
-          credentials: "include",
-          headers: {
-            Accept: "application/json"
-          }
-        })
-      )
-    );
-
-    const profile = getSettledJsonResult(settled[0]);
-    const reputation = getSettledJsonResult(settled[1]);
-    const reviewStats = getSettledJsonResult(settled[2]);
-    const reports = getSettledJsonResult(settled[3]);
-
-    if (!profile && !reputation && !reviewStats && !reports) {
-      throw firstSettledError(settled) || new Error("CSRep returned no usable data.");
-    }
-
-    return normalizeCsRepApiBundle({ steamId, profile, reputation, reviewStats, reports, profileUrl });
-  } catch (error) {
-    if ((error.status === 401 || error.status === 403) && settings.enableProtectedScraping) {
-      const scraped = await scrapeProtectedPage(profileUrl, settings.protectedScrapeDelayMs);
-      return normalizeCsRepScrape(steamId, profileUrl, scraped);
-    }
-
-    if (error.status === 404) {
-      return makeProviderResult("csrep", "not_found", {
-        message: "No CSRep profile was found for this Steam account.",
-        url: profileUrl
-      });
-    }
-
-    if (error.status === 401 || error.status === 403) {
-      return makeProviderResult("csrep", "setup", {
-        message: "Log in to csrep.gg in this browser to unlock CSRep data.",
-        url: profileUrl
-      });
-    }
-
-    return makeProviderResult("csrep", "error", {
-      message: normalizeHttpError(error, "CSRep could not be reached right now."),
-      url: profileUrl
-    });
-  }
-}
 
 async function fetchCsStatsData(steamId, settings) {
   if (!settings.enableCsStats) {
@@ -431,99 +414,6 @@ async function fetchCsStatsData(steamId, settings) {
   }
 }
 
-function normalizeCsRepApiBundle({ steamId, profile, reputation, reviewStats, reports, profileUrl }) {
-  const trust = asNumber(reputation?.trust_rating ?? reputation?.trust_score ?? reputation?.score);
-  const positive = asNumber(reviewStats?.positive ?? reputation?.positive);
-  const negative = asNumber(reviewStats?.negative ?? reputation?.negative);
-  const totalReports = Array.isArray(reports) ? reports.length : null;
-  const convictions = Array.isArray(reports)
-    ? reports.filter((entry) => asNumber(entry?.case?.final_score) !== null && asNumber(entry.case.final_score) >= 0.75).length
-    : null;
-  const totalMatches = asNumber(reputation?.metadata?.total_matches);
-  const cs2Hours = asNumber(profile?.cs2_hours);
-
-  let status = "Clean";
-  if (convictions !== null && convictions > 0) {
-    status = "Convicted";
-  } else if (trust !== null && trust <= 30) {
-    status = "Flagged";
-  }
-
-  return makeProviderResult("csrep", "ready", {
-    title: profile?.user?.username || profile?.user?.display_name || "CSRep",
-    message: "",
-    url: profileUrl,
-    metrics: compact([
-      makeMetric("Trust", formatDecimal(trust, 2)),
-      makeMetric("Positive", formatInteger(positive)),
-      makeMetric("Reports", formatInteger(totalReports)),
-      makeMetric("Status", status)
-    ]),
-    details: compact([
-      makeDetail("Negative", formatInteger(negative)),
-      makeDetail("Convictions", formatInteger(convictions)),
-      makeDetail("Matches", formatInteger(totalMatches)),
-      makeDetail("CS2 hours", formatInteger(cs2Hours)),
-      makeDetail("Roles", Array.isArray(profile?.user?.roles) && profile.user.roles.length ? profile.user.roles.join(", ") : null),
-      makeDetail("Steam64", steamId)
-    ])
-  });
-}
-
-function normalizeCsRepScrape(steamId, profileUrl, scraped) {
-  const text = normalizeTextBlock(scraped?.bodyText || "");
-
-  if (!text) {
-    return makeProviderResult("csrep", "error", {
-      message: "CSRep loaded, but no readable data was captured.",
-      url: profileUrl
-    });
-  }
-
-  if (hasAny(text, ["just a moment", "verify you are human", "attention required"])) {
-    return makeProviderResult("csrep", "setup", {
-      message: "CSRep is behind Cloudflare right now. Open the CSRep profile once in this browser, then reload Steam.",
-      url: profileUrl
-    });
-  }
-
-  if (hasAny(text, ["sign in", "log in", "login"])) {
-    return makeProviderResult("csrep", "setup", {
-      message: "Log in to csrep.gg in this browser to unlock CSRep data.",
-      url: profileUrl
-    });
-  }
-
-  const lines = toLines(text);
-  const trust = findLabeledNumber(lines, /trust score/i);
-  const positive = findLabeledNumber(lines, /positive reviews?/i) || findLabeledNumber(lines, /^positive$/i);
-  const negative = findLabeledNumber(lines, /negative reviews?/i) || findLabeledNumber(lines, /^negative$/i);
-  const reports = findLabeledNumber(lines, /reports against player/i) || findLabeledNumber(lines, /^reports$/i);
-
-  const metrics = compact([
-    makeMetric("Trust", trust),
-    makeMetric("Positive", positive),
-    makeMetric("Negative", negative),
-    makeMetric("Reports", reports)
-  ]);
-
-  if (!metrics.length) {
-    return makeProviderResult("csrep", "setup", {
-      message: "Open the CSRep profile in this browser once so its protected stats finish loading, then reload Steam.",
-      url: profileUrl
-    });
-  }
-
-  return makeProviderResult("csrep", "ready", {
-    title: extractPossibleTitle(scraped?.title, "CSRep"),
-    message: "Loaded from the rendered CSRep page.",
-    url: profileUrl,
-    metrics,
-    details: compact([
-      makeDetail("Steam64", steamId)
-    ])
-  });
-}
 
 function normalizeCsStatsText(steamId, profileUrl, textInput) {
   const text = normalizeTextBlock(textInput || "");
@@ -576,65 +466,6 @@ function normalizeCsStatsText(steamId, profileUrl, textInput) {
   });
 }
 
-async function scrapeProtectedPage(url, delayMs) {
-  const tab = await chrome.tabs.create({ url, active: false });
-
-  try {
-    await waitForTabComplete(tab.id);
-    await delay(Number(delayMs) || SETTINGS.protectedScrapeDelayMs);
-
-    const execution = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => ({
-        title: document.title,
-        bodyText: document.body ? document.body.innerText : "",
-        html: document.documentElement ? document.documentElement.outerHTML : "",
-        href: location.href
-      })
-    });
-
-    return execution?.[0]?.result || { title: "", bodyText: "", html: "", href: url };
-  } finally {
-    try {
-      await chrome.tabs.remove(tab.id);
-    } catch (_error) {
-      // Ignore cleanup failures.
-    }
-  }
-}
-
-function waitForTabComplete(tabId, timeoutMs = 20000) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      chrome.tabs.onUpdated.removeListener(handleUpdate);
-      reject(new Error("Timed out while loading a protected provider page."));
-    }, timeoutMs);
-
-    const handleUpdate = (updatedTabId, changeInfo, tab) => {
-      if (updatedTabId !== tabId) {
-        return;
-      }
-
-      if (changeInfo.status === "complete") {
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(handleUpdate);
-        resolve(tab);
-      }
-    };
-
-    chrome.tabs.onUpdated.addListener(handleUpdate);
-
-    chrome.tabs.get(tabId).then((tab) => {
-      if (tab?.status === "complete") {
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(handleUpdate);
-        resolve(tab);
-      }
-    }).catch(() => {
-      // Ignore lookup failures here and let the update listener or timeout handle them.
-    });
-  });
-}
 
 async function fetchJson(url, options = {}) {
   const response = await fetchWithTimeout(url, options);
@@ -705,7 +536,7 @@ function providerTitle(id) {
   return {
     faceit: "FACEIT",
     leetify: "Leetify",
-    csrep: "CSRep",
+    steam: "Steam",
     csstats: "CSStats"
   }[id] || id;
 }
@@ -892,14 +723,6 @@ function compact(values) {
   return values.filter(Boolean);
 }
 
-function getSettledJsonResult(result) {
-  return result?.status === "fulfilled" ? result.value?.result ?? result.value : null;
-}
-
-function firstSettledError(settled) {
-  const failed = settled.find((entry) => entry.status === "rejected");
-  return failed ? failed.reason : null;
-}
 
 function pickAliasedNumber(record, aliases) {
   const value = pickAliasedValue(record, aliases);

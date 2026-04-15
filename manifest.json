@@ -1,18 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "Steam CS2 Profile Intel",
-  "version": "0.1.0",
-  "description": "Shows FACEIT and Leetify information directly on Steam profiles.",
-  "permissions": [
-    "tabs",
-    "scripting"
-  ],
+  "name": "CS2 Recon",
+  "short_name": "CS2 Recon",
+  "version": "1.0.0",
+  "description": "See CS2 stats on any Steam profile instantly. Shows FACEIT rank & ELO, CS Rating, competitive & wingman ranks, Leetify ratings, account age, and friend code — without leaving Steam.",
+  "permissions": [],
   "host_permissions": [
     "https://steamcommunity.com/*",
     "https://api-public.cs-prod.leetify.com/*",
     "https://open.faceit.com/*",
-    "https://csrep.gg/*",
-    "https://api.csrep.gg/*",
     "https://csstats.gg/*",
     "https://api.steampowered.com/*"
   ],
@@ -46,7 +42,17 @@
       ]
     }
   ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
   "action": {
-    "default_title": "Steam CS2 Profile Intel"
+    "default_title": "CS2 Recon",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
   }
 }
