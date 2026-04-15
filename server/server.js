@@ -14,7 +14,6 @@ const SHARED_SECRET       = process.env.STEAM_BOT_SHARED_SECRET || null;
 const GC_THROTTLE_MS      = 500;   // min ms between GC requests
 const GC_TIMEOUT_MS       = 10000; // ms to wait for a GC response
 const CACHE_TTL_MS        = 5 * 60 * 1000;
-const RECENT_MATCHES_LIMIT = 6;
 
 if (!STEAM_USERNAME || !STEAM_PASSWORD) {
   console.error("[Server] ERROR: set STEAM_BOT_USERNAME and STEAM_BOT_PASSWORD in server/.env");
@@ -118,77 +117,6 @@ function gcFetchOne(steamId) {
   });
 }
 
-// Recent matches queue — match list responses arrive as a shared event, so keep
-// these requests strictly serialized and de-duped.
-const pendingMatchQueue = [];        // { steamId, resolve, reject }
-const inflightMatchMap  = new Map(); // steamId → Promise
-let   matchQueueRunning = false;
-
-function enqueueRecentMatches(steamId) {
-  if (inflightMatchMap.has(steamId)) return inflightMatchMap.get(steamId);
-
-  const promise = new Promise((resolve, reject) => {
-    pendingMatchQueue.push({ steamId, resolve, reject });
-    if (!matchQueueRunning) runMatchQueue();
-  });
-
-  inflightMatchMap.set(steamId, promise);
-  promise.finally(() => inflightMatchMap.delete(steamId));
-  return promise;
-}
-
-async function runMatchQueue() {
-  matchQueueRunning = true;
-  while (pendingMatchQueue.length > 0) {
-    const item = pendingMatchQueue.shift();
-    try {
-      item.resolve(await gcFetchRecentMatches(item.steamId));
-    } catch (e) {
-      item.reject(e);
-    }
-    if (pendingMatchQueue.length > 0) await sleep(GC_THROTTLE_MS);
-  }
-  matchQueueRunning = false;
-}
-
-function gcFetchRecentMatches(steamId) {
-  return new Promise((resolve, reject) => {
-    if (!gcReady) return reject(new Error("CS2 GC not connected"));
-
-    const accountId = steam64ToAccountId(steamId);
-    if (accountId === null) {
-      return reject(new Error("Invalid Steam64 ID for recent matches request"));
-    }
-
-    let settled = false;
-    function settle(fn, val) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      csgo.removeListener("matchList", onMatchList);
-      fn(val);
-    }
-
-    const timer = setTimeout(() => settle(resolve, []), GC_TIMEOUT_MS);
-
-    const onMatchList = (matches, data) => {
-      const responseAccountId = Number(data?.accountid ?? 0);
-      if (responseAccountId && responseAccountId !== accountId) {
-        return;
-      }
-
-      settle(resolve, Array.isArray(matches) ? matches : []);
-    };
-
-    csgo.on("matchList", onMatchList);
-
-    const result = csgo.requestRecentGames(steamId);
-    if (result === false) {
-      settle(reject, new Error("Invalid Steam64 ID for recent matches request"));
-    }
-  });
-}
-
 // ── Profile parsing ───────────────────────────────────────────────────────────
 // The library's handler already extracts account_profiles[0] before calling
 // our callback, so `profile` IS the CMsgGCCStrike15_v2_MatchmakingGC2ClientHello.
@@ -235,94 +163,12 @@ function parseProfile(profile) {
   };
 }
 
-function parseRecentMatches(steamId, matches) {
-  const accountId = steam64ToAccountId(steamId);
-  if (accountId === null || !Array.isArray(matches)) {
-    return [];
-  }
-
-  return matches
-    .map((match) => parseRecentMatch(accountId, match))
-    .filter(Boolean)
-    .sort((left, right) => (right.match_time ?? 0) - (left.match_time ?? 0))
-    .slice(0, RECENT_MATCHES_LIMIT);
-}
-
-function parseRecentMatch(accountId, match) {
-  if (!match || typeof match !== "object") {
-    return null;
-  }
-
-  const roundStats = getLatestRoundStats(match);
-  const reservation = roundStats?.reservation ?? null;
-  const accountIds = Array.isArray(reservation?.account_ids)
-    ? reservation.account_ids.map((value) => Number(value))
-    : [];
-
-  const playerIndex = accountIds.findIndex((value) => value === accountId);
-  const teamSize = accountIds.length > 1 ? Math.ceil(accountIds.length / 2) : 5;
-  const playerTeamIndex = playerIndex >= 0 ? (playerIndex < teamSize ? 0 : 1) : 0;
-  const enemyTeamIndex = playerTeamIndex === 0 ? 1 : 0;
-  const teamScores = Array.isArray(roundStats?.team_scores)
-    ? roundStats.team_scores.map((value) => Number(value))
-    : [];
-
-  const scoreFor = teamScores[playerTeamIndex];
-  const scoreAgainst = teamScores[enemyTeamIndex];
-
-  let result = null;
-  if (Number.isFinite(scoreFor) && Number.isFinite(scoreAgainst)) {
-    result = scoreFor > scoreAgainst ? "win" : scoreFor < scoreAgainst ? "loss" : "draw";
-  }
-
-  return {
-    match_id: String(match.matchid ?? reservation?.match_id ?? ""),
-    match_time: Number(match.matchtime ?? 0) || null,
-    map: normalizeMapName(roundStats?.map ?? match?.watchablematchinfo?.game_map ?? null),
-    game_type: Number(reservation?.game_type ?? match?.watchablematchinfo?.game_type ?? 0) || null,
-    result,
-    score_for: Number.isFinite(scoreFor) ? scoreFor : null,
-    score_against: Number.isFinite(scoreAgainst) ? scoreAgainst : null,
-    kills: pickPlayerStat(roundStats?.kills, playerIndex),
-    assists: pickPlayerStat(roundStats?.assists, playerIndex),
-    deaths: pickPlayerStat(roundStats?.deaths, playerIndex),
-    score: pickPlayerStat(roundStats?.scores, playerIndex),
-    mvps: pickPlayerStat(roundStats?.mvps, playerIndex),
-    duration_seconds: Number(roundStats?.match_duration ?? 0) || null,
-  };
-}
-
-function getLatestRoundStats(match) {
-  if (Array.isArray(match?.roundstatsall) && match.roundstatsall.length > 0) {
-    return match.roundstatsall[match.roundstatsall.length - 1];
-  }
-
-  return match?.roundstats_legacy ?? null;
-}
-
-function pickPlayerStat(values, playerIndex) {
-  if (!Array.isArray(values) || playerIndex < 0 || playerIndex >= values.length) {
-    return null;
-  }
-
-  const value = Number(values[playerIndex]);
-  return Number.isFinite(value) ? value : null;
-}
-
-function normalizeMapName(value) {
-  const raw = String(value || "").trim().toLowerCase();
-  return raw || null;
-}
-
 // ── Cache ─────────────────────────────────────────────────────────────────────
 
 const cache = new Map(); // steamId → { data, expiresAt }
-const matchesCache = new Map(); // steamId → { data, expiresAt }
 
 function getCached(steamId)         { const e = cache.get(steamId); return (e && e.expiresAt > Date.now()) ? e.data : null; }
 function setCached(steamId, data)   { cache.set(steamId, { data, expiresAt: Date.now() + CACHE_TTL_MS }); }
-function getCachedMatches(steamId)  { const e = matchesCache.get(steamId); return (e && e.expiresAt > Date.now()) ? e.data : null; }
-function setCachedMatches(steamId, data) { matchesCache.set(steamId, { data, expiresAt: Date.now() + CACHE_TTL_MS }); }
 
 // ── HTTP server ───────────────────────────────────────────────────────────────
 
@@ -382,34 +228,6 @@ app.get("/profile/:steamId", async (req, res) => {
   }
 });
 
-app.get("/matches/:steamId", async (req, res) => {
-  const { steamId } = req.params;
-
-  if (!/^\d{17}$/.test(steamId)) {
-    return res.status(400).json({ ok: false, error: "Invalid Steam64 ID" });
-  }
-
-  const cached = getCachedMatches(steamId);
-  if (cached) return res.json(cached);
-
-  if (!gcReady) {
-    return res.status(503).json({ ok: false, error: "GC not connected yet — retry in a few seconds" });
-  }
-
-  try {
-    const rawMatches = await enqueueRecentMatches(steamId);
-    const matches = parseRecentMatches(steamId, rawMatches);
-    const result = matches.length
-      ? { ok: true, found: true, matches }
-      : { ok: true, found: false, matches: [] };
-
-    setCachedMatches(steamId, result);
-    res.json(result);
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
 app.listen(PORT, HOST, () => {
   console.log(`[Server] CS2 Recon GC proxy listening on ${HOST}:${PORT}`);
   console.log("[Server] Waiting for Steam login...");
@@ -423,13 +241,5 @@ function requireOptional(pkg, hint) {
   try { return require(pkg); } catch {
     console.error(`[Server] Missing package: ${pkg}. Run: ${hint}`);
     process.exit(1);
-  }
-}
-
-function steam64ToAccountId(steamId) {
-  try {
-    return Number(BigInt(String(steamId)) & 0xffffffffn);
-  } catch {
-    return null;
   }
 }

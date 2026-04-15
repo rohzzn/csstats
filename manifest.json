@@ -39,8 +39,6 @@
         "csranks/*.svg",
         "wingman/*.svg",
         "commendations/*.svg",
-        "maps-icons/*.svg",
-        "maps-icons/community/*.svg",
         "levels/*.png"
       ],
       "matches": [

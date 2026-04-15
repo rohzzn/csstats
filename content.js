@@ -1,6 +1,5 @@
 (function () {
   const ROOT_ID  = "spx-cs2-profile-intel";
-  const MATCHES_ID = "spx-cs2-matches-intel";
   const CLIPS_ID = "spx-cs2-clips-intel";
   const DISPLAY_ORDER = ["steam", "faceit", "leetify", "csstats"];
 
@@ -8,7 +7,6 @@
     steamId: null,
     profileUrl: null,
     root: null,
-    matchesRoot: null,
     clipsRoot: null
   };
 
@@ -94,17 +92,11 @@
       context.target.prepend(root);
     }
 
-    const matchesRoot = ensureRoot(MATCHES_ID);
-    state.matchesRoot = matchesRoot;
-    if (!context.target.contains(matchesRoot)) {
-      root.insertAdjacentElement("afterend", matchesRoot);
-    }
-
     // Clips section goes directly after the stats section
     const clipsRoot = ensureRoot(CLIPS_ID);
     state.clipsRoot = clipsRoot;
     if (!context.target.contains(clipsRoot)) {
-      matchesRoot.insertAdjacentElement("afterend", clipsRoot);
+      root.insertAdjacentElement("afterend", clipsRoot);
     }
 
     renderLoading(root);
@@ -134,7 +126,6 @@
       }
 
       renderBundle(state.root, response);
-      renderMatchesSection(state.matchesRoot, response);
       renderClipsSection(state.clipsRoot, response);
     } catch (error) {
       renderFatal(state.root, error.message || "The extension could not load provider data.");
@@ -205,32 +196,6 @@
       <div class="profile_customization_block">
         <div class="showcase_content_bg spx-shell">
           <div class="spx-row-list">${providers.map((provider) => renderProviderRow(provider)).join("")}</div>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderMatchesSection(root, bundle) {
-    if (!root) return;
-
-    const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
-    const matchesProvider = providers.find((provider) => provider.id === "matches");
-    const matches = (matchesProvider?.state === "ready" && Array.isArray(matchesProvider.matches))
-      ? matchesProvider.matches
-      : [];
-
-    if (!matches.length) {
-      root.innerHTML = "";
-      return;
-    }
-
-    root.innerHTML = `
-      <div class="profile_customization_header spx-showcase-header">Matches</div>
-      <div class="profile_customization_block">
-        <div class="showcase_content_bg spx-shell">
-          <div class="spx-match-grid">
-            ${matches.map((match) => renderMatchCard(match)).join("")}
-          </div>
         </div>
       </div>
     `;
@@ -506,74 +471,6 @@
 
     base.push(levelMetric);
     return base;
-  }
-
-  function renderMatchCard(match) {
-    const icon = match.icon
-      ? `<img class="spx-match-map-icon" src="${escapeAttribute(match.icon)}" alt="${escapeAttribute(match.mapLabel || "Map")}" />`
-      : "";
-
-    const score = match.scoreLabel
-      ? `<div class="spx-match-score">${escapeHtml(match.scoreLabel)}</div>`
-      : "";
-
-    const kda = match.kdaLabel
-      ? `<div class="spx-match-kda">${escapeHtml(match.kdaLabel)}</div>`
-      : "";
-
-    const chips = [
-      match.scoreValue ? `<div class="spx-match-chip">Score ${escapeHtml(match.scoreValue)}</div>` : "",
-      match.mvpValue ? `<div class="spx-match-chip">MVP ${escapeHtml(match.mvpValue)}</div>` : "",
-      match.durationLabel ? `<div class="spx-match-chip">${escapeHtml(match.durationLabel)}</div>` : ""
-    ].filter(Boolean).join("");
-
-    return `
-      <article class="spx-match-card">
-        <div class="spx-match-card-top">
-          <div class="spx-match-map-wrap">
-            ${icon}
-            <div class="spx-match-map-copy">
-              <div class="spx-match-map-name">${escapeHtml(match.mapLabel || "Unknown Map")}</div>
-              <div class="spx-match-time">${escapeHtml(formatMatchTime(match.playedAt))}</div>
-            </div>
-          </div>
-          <div class="spx-match-result spx-match-result-${escapeAttribute(match.resultTone || "neutral")}">${escapeHtml(match.resultLabel || "Match")}</div>
-        </div>
-        ${(score || kda) ? `<div class="spx-match-card-main">${score}${kda}</div>` : ""}
-        ${chips ? `<div class="spx-match-chip-row">${chips}</div>` : ""}
-      </article>
-    `;
-  }
-
-  function formatMatchTime(timestamp) {
-    const numeric = Number(timestamp);
-    if (!Number.isFinite(numeric) || numeric <= 0) {
-      return "Recent match";
-    }
-
-    const playedAt = new Date(numeric * 1000);
-    const now = Date.now();
-    const deltaMs = now - playedAt.getTime();
-    const deltaMinutes = Math.max(1, Math.round(deltaMs / 60000));
-
-    if (deltaMinutes < 60) {
-      return `${deltaMinutes}m ago`;
-    }
-
-    const deltaHours = Math.round(deltaMinutes / 60);
-    if (deltaHours < 24) {
-      return `${deltaHours}h ago`;
-    }
-
-    const deltaDays = Math.round(deltaHours / 24);
-    if (deltaDays < 7) {
-      return `${deltaDays}d ago`;
-    }
-
-    return playedAt.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric"
-    });
   }
 
   function escapeHtml(value) {
