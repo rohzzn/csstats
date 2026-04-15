@@ -5,10 +5,13 @@ const SETTINGS = Object.freeze({
   enableLeetify: true,
   enableFaceit: true,
   enableCsStats: true,
+  gcServerUrl: "http://127.0.0.1:3000",
+  allstarPublicKey: "3b717a42-ef7e-48d6-bd12-eba0daad9d7f",
+  allstarServerKey: "90a30aed-0dfe-4220-9ac6-4e5c36a7c559",
   cacheTtlMs: 5 * 60 * 1000
 });
 
-const PROVIDER_ORDER = ["steam", "faceit", "leetify", "csstats"];
+const PROVIDER_ORDER = ["steam", "gc", "faceit", "leetify", "csstats", "allstar"];
 const providerCache = new Map();
 const inflightRequests = new Map();
 
@@ -34,10 +37,12 @@ async function buildProfileBundle(message) {
   const settings = SETTINGS;
 
   const providerTasks = {
-    steam: () => getCachedProvider("steam", steamId, settings, force, () => fetchSteamData(steamId, settings)),
-    faceit: () => getCachedProvider("faceit", steamId, settings, force, () => fetchFaceitData(steamId, settings)),
+    steam:   () => getCachedProvider("steam",   steamId, settings, force, () => fetchSteamData(steamId, settings)),
+    gc:      () => getCachedProvider("gc",      steamId, settings, force, () => fetchGcData(steamId, settings)),
+    faceit:  () => getCachedProvider("faceit",  steamId, settings, force, () => fetchFaceitData(steamId, settings)),
     leetify: () => getCachedProvider("leetify", steamId, settings, force, () => fetchLeetifyData(steamId, settings)),
-    csstats: () => getCachedProvider("csstats", steamId, settings, force, () => fetchCsStatsData(steamId, settings))
+    csstats: () => getCachedProvider("csstats", steamId, settings, force, () => fetchCsStatsData(steamId, settings)),
+    allstar: () => getCachedProvider("allstar", steamId, settings, force, () => fetchAllstarData(steamId, settings))
   };
 
   const providers = await Promise.all(
@@ -102,12 +107,19 @@ function getProviderCacheTtl(providerResult, defaultTtl) {
 }
 
 async function fetchSteamData(steamId, settings) {
+  const profileUrl = `https://steamcommunity.com/profiles/${steamId}`;
+  const friendCode = getSteamFriendCode(steamId);
+
   if (!settings.steamApiKey) {
-    return makeProviderResult("steam", "not_found", {});
+    return makeProviderResult("steam", "ready", {
+      title: "Steam",
+      url: profileUrl,
+      metrics: compact([makeMetric("Friend Code", friendCode)]),
+      details: []
+    });
   }
 
   const key = settings.steamApiKey;
-  const profileUrl = `https://steamcommunity.com/profiles/${steamId}`;
 
   try {
     const [summaryRes, bansRes, statsRes] = await Promise.all([
@@ -123,43 +135,35 @@ async function fetchSteamData(steamId, settings) {
     const statMap = {};
     for (const s of rawStats) { statMap[s.name] = s.value; }
 
-    const accountAge = player?.timecreated ? formatAccountAge(player.timecreated) : null;
-    const friendCode = getSteamFriendCode(steamId);
-
-    let banStatus = null;
+    // Ban — only shown when account actually has a ban
+    let banLabel = null;
     if (banInfo) {
       if (banInfo.VACBanned) {
-        banStatus = `${banInfo.NumberOfVACBans} VAC`;
+        banLabel = `VAC ×${banInfo.NumberOfVACBans}`;
       } else if (banInfo.NumberOfGameBans > 0) {
-        banStatus = `${banInfo.NumberOfGameBans} Game Ban`;
-      } else {
-        banStatus = "Clean";
+        banLabel = `Game ×${banInfo.NumberOfGameBans}`;
       }
     }
 
-    const commendFriendly = asNumber(statMap.total_commendation_friendly ?? statMap.commendation_friendly);
-    const commendTeaching = asNumber(statMap.total_commendation_teaching ?? statMap.commendation_teaching);
-    const commendLeader   = asNumber(statMap.total_commendation_leader   ?? statMap.commendation_leader);
-    const totalCommend = compact([commendFriendly, commendTeaching, commendLeader])
-      .reduce((sum, v) => sum + v, 0);
-
     const metrics = compact([
-      makeMetric("Commends", totalCommend > 0 ? formatInteger(totalCommend) : null)
+      makeMetric("Friend Code", friendCode),
+      banLabel ? makeMetric("Ban", banLabel) : null
     ]);
 
-    if (!metrics.length) {
-      return makeProviderResult("steam", "not_found", {});
-    }
-
+    // Always return at least friend code — Steam row shows on every profile
     return makeProviderResult("steam", "ready", {
       title: player?.personaname || "Steam",
-      message: "",
       url: profileUrl,
-      metrics,
+      metrics: metrics.length > 0 ? metrics : compact([makeMetric("Friend Code", friendCode)]),
       details: []
     });
   } catch (_error) {
-    return makeProviderResult("steam", "not_found", {});
+    return makeProviderResult("steam", "ready", {
+      title: "Steam",
+      url: profileUrl,
+      metrics: compact([makeMetric("Friend Code", friendCode)]),
+      details: []
+    });
   }
 }
 
@@ -266,6 +270,85 @@ function formatAccountAge(timecreated) {
   return `${months}m`;
 }
 
+
+async function fetchGcData(steamId, settings) {
+  const serverUrl = settings.gcServerUrl;
+  if (!serverUrl) return makeProviderResult("gc", "disabled", {});
+
+  const steamProfileUrl = `https://steamcommunity.com/profiles/${steamId}`;
+
+  try {
+    const data = await fetchJson(`${serverUrl}/profile/${steamId}`, {
+      headers: { Accept: "application/json" }
+    });
+
+    if (!data.ok || !data.found) {
+      return makeProviderResult("gc", "not_found", {});
+    }
+
+    const friendly = asNumber(data.commend_friendly);
+    const teaching = asNumber(data.commend_teaching);
+    const leader   = asNumber(data.commend_leader);
+
+    // Premier — currently always null (Valve restricted), wired up for when it returns
+    const premier     = asNumber(data.premier_rating);
+    const wingmanRank = asNumber(data.wingman_rank);
+
+    // Commendations as icon+value pairs
+    const commendations = compact([
+      friendly !== null ? { type: "friendly", value: formatInteger(friendly), image: chrome.runtime.getURL("commendations/smile.svg") }   : null,
+      teaching !== null ? { type: "teaching", value: formatInteger(teaching), image: chrome.runtime.getURL("commendations/teacher.svg") } : null,
+      leader   !== null ? { type: "leader",   value: formatInteger(leader),   image: chrome.runtime.getURL("commendations/leader.svg") }  : null
+    ]);
+
+    // Rank strips — future-proof for when Valve re-enables rankings
+    const wingmanRanks = (wingmanRank !== null && wingmanRank > 0)
+      ? [{
+          mapName: "Wingman",
+          rank: Math.min(18, Math.max(1, wingmanRank)),
+          rankLabel: competitiveRankLabel(wingmanRank),
+          image: chrome.runtime.getURL(`wingman/${CSGO_RANK_ASSET_MAP[Math.min(18, wingmanRank)] || "none.svg"}`)
+        }]
+      : [];
+
+    const competitiveRanks = Array.isArray(data.competitive_ranks)
+      ? data.competitive_ranks
+          .filter((r) => r.rank_id > 0)
+          .map((r) => {
+            const rank = Math.min(18, Math.max(1, r.rank_id));
+            return {
+              mapName: "Competitive",
+              rank,
+              rankLabel: competitiveRankLabel(rank),
+              image: chrome.runtime.getURL(`csranks/${CSGO_RANK_ASSET_MAP[rank] || "none.svg"}`)
+            };
+          })
+          .slice(0, 6)
+      : [];
+
+    const metrics = compact([
+      premier !== null ? makeMetric("Premier", formatInteger(premier)) : null
+    ]);
+
+    if (!commendations.length && !metrics.length && !wingmanRanks.length && !competitiveRanks.length) {
+      return makeProviderResult("gc", "not_found", {});
+    }
+
+    return makeProviderResult("gc", "ready", {
+      title: "CS2",
+      url: steamProfileUrl,
+      commendations,
+      metrics,
+      competitiveRanks,
+      wingmanRanks,
+      details: []
+    });
+  } catch (_err) {
+    // Server not running — silently hide this row
+    return makeProviderResult("gc", "disabled", {});
+  }
+}
+
 async function fetchLeetifyData(steamId, settings) {
   if (!settings.enableLeetify) {
     return makeProviderResult("leetify", "not_found", {});
@@ -336,15 +419,10 @@ async function fetchFaceitData(steamId, settings) {
   };
 
   try {
-    const [player, summaryRes] = await Promise.all([
-      fetchJson(
-        `https://open.faceit.com/data/v4/players?game=cs2&game_player_id=${encodeURIComponent(steamId)}`,
-        { headers }
-      ),
-      settings.steamApiKey
-        ? fetchJson(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${settings.steamApiKey}&steamids=${steamId}`).catch(() => null)
-        : Promise.resolve(null)
-    ]);
+    const player = await fetchJson(
+      `https://open.faceit.com/data/v4/players?game=cs2&game_player_id=${encodeURIComponent(steamId)}`,
+      { headers }
+    );
 
     const stats = await fetchJson(
       `https://open.faceit.com/data/v4/players/${encodeURIComponent(player.player_id)}/stats/cs2`,
@@ -358,17 +436,17 @@ async function fetchFaceitData(steamId, settings) {
       pickAliasedNumber(lifetime, ["Average K/D Ratio", "Average K/D", "K/D Ratio"]),
       2
     );
-
-    const steamPlayer = summaryRes?.response?.players?.[0];
-    const accountAge = steamPlayer?.timecreated ? formatAccountAge(steamPlayer.timecreated) : null;
-    const friendCode = getSteamFriendCode(steamId);
+    const wins = formatInteger(pickAliasedNumber(lifetime, ["Matches"]));
+    const hsPercent = formatPercent(
+      pickAliasedNumber(lifetime, ["Average Headshots %", "Headshots %", "Average Headshots"]),
+      1
+    );
 
     const metrics = compact([
       makeMetric("ELO", formatInteger(cs2.faceit_elo)),
-      makeMetric("Matches", formatInteger(pickAliasedNumber(lifetime, ["Matches"]))),
+      makeMetric("Matches", wins),
       makeMetric("K/D", kd),
-      makeMetric("Account Age", accountAge),
-      makeMetric("Friend Code", friendCode)
+      makeMetric("HS%", hsPercent)
     ]);
 
     if (!metrics.length) {
@@ -377,7 +455,6 @@ async function fetchFaceitData(steamId, settings) {
 
     return makeProviderResult("faceit", "ready", {
       title: player.nickname || "FACEIT",
-      message: "",
       url: player.faceit_url || `https://www.faceit.com/en/players/${encodeURIComponent(player.nickname || "")}`,
       rankImage,
       rankLabel: resolveFaceitRankLabel(cs2),
@@ -386,6 +463,78 @@ async function fetchFaceitData(steamId, settings) {
     });
   } catch (_error) {
     return makeProviderResult("faceit", "not_found", {});
+  }
+}
+
+
+function resolveAllstarThumbnail(raw) {
+  if (!raw) return null;
+  // CS2 clips/thumbs live in Backblaze B2
+  if (raw.startsWith("b2://allstar-cs2-clip-prod/")) {
+    return `https://f005.backblazeb2.com/file/allstar-cs2-clip-prod/${raw.slice(27)}`;
+  }
+  if (raw.startsWith("b2://")) return null;
+  // Older clips use AllStar's own CDN
+  return `https://media.allstar.gg/${raw}`;
+}
+
+async function fetchAllstarData(steamId, settings) {
+  const key = settings.allstarServerKey;
+  if (!key) return makeProviderResult("allstar", "disabled", {});
+
+  const GRAPHQL = "https://a1.allstar.gg/graphql";
+  const headers = { "Content-Type": "application/json", "x-api-key": key };
+
+  try {
+    // Step 1: resolve Steam ID → AllStar user ID
+    const userRes = await postJson(GRAPHQL, {
+      query: `query($s:String!){ playerSearch(gameIdentifier:$s,game:CS){ success user{ _id username avatarUrl } } }`,
+      variables: { s: steamId }
+    }, { headers });
+
+    const user = userRes?.data?.playerSearch?.user;
+    if (!user?._id) {
+      return makeProviderResult("allstar", "not_found", {});
+    }
+
+    // Step 2: fetch their recent CS2 clips
+    const clipsRes = await postJson(GRAPHQL, {
+      query: `query($page:Int!,$user:String!,$game:Int){
+        videos:clips(search:createdDate,page:$page,user:$user,mobile:false,game:$game){
+          data{ _id clipTitle clipImageThumb clipLink views createdDate }
+        }
+      }`,
+      variables: { page: 1, user: user._id, game: 7302 }
+    }, { headers });
+
+    const rawClips = clipsRes?.data?.videos?.data || [];
+    const clips = rawClips
+      .filter((c) => c._id && c.clipImageThumb)
+      .slice(0, 8)
+      .map((c) => ({
+        id:        c._id,
+        title:     c.clipTitle || "CS2 Clip",
+        thumbnail: resolveAllstarThumbnail(c.clipImageThumb),
+        video:     resolveAllstarThumbnail(c.clipLink),
+        url:       `https://allstar.gg/clip?clip=${c._id}`,
+        views:     asNumber(c.views) ?? 0,
+        timestamp: asNumber(c.createdDate) ?? 0,
+        source:    "allstar"
+      }))
+      .filter((c) => c.thumbnail !== null);
+
+    if (!clips.length) {
+      return makeProviderResult("allstar", "not_found", {});
+    }
+
+    return makeProviderResult("allstar", "ready", {
+      title: user.username || "AllStar",
+      url: `https://allstar.gg/u/${user._id}`,
+      clips,
+      metrics: []
+    });
+  } catch (_err) {
+    return makeProviderResult("allstar", "not_found", {});
   }
 }
 
@@ -483,6 +632,21 @@ async function fetchJson(url, options = {}) {
   return response.json();
 }
 
+async function postJson(url, body, options = {}) {
+  const response = await fetchWithTimeout(url, {
+    ...options,
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { ...options.headers }
+  });
+
+  if (!response.ok) {
+    throw await buildHttpError(response);
+  }
+
+  return response.json();
+}
+
 async function fetchText(url, options = {}) {
   const response = await fetchWithTimeout(url, options);
 
@@ -537,7 +701,9 @@ function providerTitle(id) {
     faceit: "FACEIT",
     leetify: "Leetify",
     steam: "Steam",
-    csstats: "CSStats"
+    csstats: "CSStats",
+    gc: "CS2",
+    allstar: "AllStar"
   }[id] || id;
 }
 

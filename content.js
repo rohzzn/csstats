@@ -1,11 +1,13 @@
 (function () {
-  const ROOT_ID = "spx-cs2-profile-intel";
+  const ROOT_ID  = "spx-cs2-profile-intel";
+  const CLIPS_ID = "spx-cs2-clips-intel";
   const DISPLAY_ORDER = ["steam", "faceit", "leetify", "csstats"];
 
   const state = {
     steamId: null,
     profileUrl: null,
-    root: null
+    root: null,
+    clipsRoot: null
   };
 
   start();
@@ -84,25 +86,29 @@
     state.steamId = context.steamId;
     state.profileUrl = context.profileUrl;
 
-    const root = ensureRoot();
+    const root = ensureRoot(ROOT_ID);
     state.root = root;
-
     if (!context.target.contains(root)) {
       context.target.prepend(root);
+    }
+
+    // Clips section goes directly after the stats section
+    const clipsRoot = ensureRoot(CLIPS_ID);
+    state.clipsRoot = clipsRoot;
+    if (!context.target.contains(clipsRoot)) {
+      root.insertAdjacentElement("afterend", clipsRoot);
     }
 
     renderLoading(root);
   }
 
-  function ensureRoot() {
-    let root = document.getElementById(ROOT_ID);
-
+  function ensureRoot(id) {
+    let root = document.getElementById(id);
     if (!root) {
       root = document.createElement("div");
-      root.id = ROOT_ID;
+      root.id = id;
       root.className = "profile_customization spx-showcase";
     }
-
     return root;
   }
 
@@ -120,6 +126,7 @@
       }
 
       renderBundle(state.root, response);
+      renderClipsSection(state.clipsRoot, response);
     } catch (error) {
       renderFatal(state.root, error.message || "The extension could not load provider data.");
     }
@@ -155,14 +162,22 @@
       (Array.isArray(bundle.providers) ? bundle.providers : []).map((provider) => [provider.id, provider])
     );
 
+    // Merge GC commendations into the Steam row so they appear side-by-side
+    const gcProvider    = providerMap.get("gc");
+    const steamProvider = providerMap.get("steam");
+    if (steamProvider && gcProvider?.state === "ready" && gcProvider.commendations?.length) {
+      providerMap.set("steam", { ...steamProvider, commendations: gcProvider.commendations });
+    }
+
     const providers = DISPLAY_ORDER
       .map((providerId) => providerMap.get(providerId) || makeFallbackProvider(providerId))
       .filter((provider) => {
         if (provider.state !== "ready") { return false; }
-        const hasMetrics = Array.isArray(provider.metrics) && provider.metrics.length > 0;
-        const hasRanks = (Array.isArray(provider.competitiveRanks) && provider.competitiveRanks.length > 0) ||
-                         (Array.isArray(provider.wingmanRanks) && provider.wingmanRanks.length > 0);
-        return hasMetrics || hasRanks;
+        const hasMetrics       = Array.isArray(provider.metrics)       && provider.metrics.length > 0;
+        const hasCommendations = Array.isArray(provider.commendations) && provider.commendations.length > 0;
+        const hasRanks         = (Array.isArray(provider.competitiveRanks) && provider.competitiveRanks.length > 0) ||
+                                 (Array.isArray(provider.wingmanRanks)     && provider.wingmanRanks.length > 0);
+        return hasMetrics || hasCommendations || hasRanks;
       });
 
     if (!providers.length) {
@@ -180,6 +195,62 @@
     `;
   }
 
+  function renderClipsSection(root, bundle) {
+    if (!root) return;
+
+    const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
+    const allstar = providers.find((p) => p.id === "allstar");
+    const clips = (allstar?.state === "ready" && Array.isArray(allstar.clips)) ? allstar.clips : [];
+
+    if (!clips.length) {
+      root.innerHTML = "";
+      return;
+    }
+
+    root.innerHTML = `
+      <div class="profile_customization_header spx-showcase-header">Clips</div>
+      <div class="profile_customization_block">
+        <div class="showcase_content_bg spx-shell">
+          <div class="spx-clips-grid">
+            ${clips.map(renderClipThumb).join("")}
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Wire up click-to-play
+    root.querySelectorAll(".spx-clip[data-playable]").forEach((el) => {
+      el.addEventListener("click", () => {
+        if (el.classList.contains("spx-clip-playing")) return;
+        el.classList.add("spx-clip-playing");
+        const videoUrl = el.dataset.video;
+        if (videoUrl) {
+          el.innerHTML = `<video class="spx-clip-video" src="${escapeAttribute(videoUrl)}" autoplay controls></video>`;
+        }
+      });
+    });
+  }
+
+  function renderClipThumb(clip) {
+    const views   = clip.views === 1 ? "1 view" : `${Number(clip.views).toLocaleString()} views`;
+    const canPlay = !!clip.video;
+    const dataAttrs = [
+      canPlay ? `data-playable="1"` : "",
+      clip.video ? `data-video="${escapeAttribute(clip.video)}"` : ""
+    ].filter(Boolean).join(" ");
+
+    return `
+      <div class="spx-clip" ${dataAttrs}>
+        <img class="spx-clip-thumb" src="${escapeAttribute(clip.thumbnail)}" alt="${escapeAttribute(clip.title)}" loading="lazy" />
+        <div class="spx-clip-info">
+          <span class="spx-clip-title">${escapeHtml(clip.title)}</span>
+          <span class="spx-clip-views">${escapeHtml(views)}</span>
+        </div>
+        ${canPlay ? `<div class="spx-play-btn">▶</div>` : ""}
+      </div>
+    `;
+  }
+
   function renderLoadingRow() {
     return `
       <article class="spx-provider-row spx-provider-row-loading">
@@ -191,22 +262,25 @@
   }
 
   function renderProviderRow(provider) {
-    const metrics = Array.isArray(provider.metrics) ? provider.metrics : [];
+    const metrics       = Array.isArray(provider.metrics)        ? provider.metrics        : [];
+    const commendations = Array.isArray(provider.commendations)  ? provider.commendations  : [];
     const competitiveRanks = Array.isArray(provider.competitiveRanks) ? provider.competitiveRanks : [];
-    const wingmanRanks = Array.isArray(provider.wingmanRanks) ? provider.wingmanRanks : [];
+    const wingmanRanks     = Array.isArray(provider.wingmanRanks)     ? provider.wingmanRanks     : [];
     const note = provider.message ? `<div class="spx-provider-note">${escapeHtml(provider.message)}</div>` : "";
 
     const rankIcon = provider.rankImage
       ? `<img class="spx-rank-image" src="${escapeAttribute(provider.rankImage)}" alt="${escapeAttribute(provider.rankLabel || "")}" title="${escapeAttribute(provider.rankLabel || "")}" />`
       : "";
 
-    const isReady = provider.state === "ready" && (metrics.length || competitiveRanks.length || wingmanRanks.length);
+    const isReady = provider.state === "ready" && (metrics.length || commendations.length || competitiveRanks.length || wingmanRanks.length);
 
     const body = isReady
       ? `
           <div class="spx-stat-line">
             ${rankIcon}
             ${metrics.length ? `<div class="spx-metric-grid">${metrics.map(renderMetric).join("")}</div>` : ""}
+            ${metrics.length && commendations.length ? `<div class="spx-stat-divider"></div>` : ""}
+            ${commendations.length ? renderCommendationStrip(commendations) : ""}
             ${note}
           </div>
           ${(wingmanRanks.length || competitiveRanks.length) ? renderRankStrip([...wingmanRanks, ...competitiveRanks]) : ""}
@@ -236,9 +310,26 @@
     `;
   }
 
+  function renderCommendationStrip(commendations) {
+    return `
+      <div class="spx-commend-strip">
+        ${commendations.map((c) => `
+          <div class="spx-commend-item spx-commend-${escapeAttribute(c.type)}">
+            <img class="spx-commend-icon" src="${escapeAttribute(c.image)}" alt="${escapeAttribute(c.type)}" />
+            <span class="spx-commend-value">${escapeHtml(c.value)}</span>
+          </div>
+        `).join("")}
+      </div>
+    `;
+  }
+
   function renderMetric(metric) {
     if (metric.label === "Premier" || metric.label === "Peak Premier") {
       return renderPremierMetric(metric);
+    }
+
+    if (metric.label === "Ban") {
+      return renderBanMetric(metric);
     }
 
     return `
@@ -246,6 +337,19 @@
         <div class="spx-metric-label">${escapeHtml(metric.label)}</div>
         <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
         ${metric.meta ? `<div class="spx-metric-meta">${escapeHtml(metric.meta)}</div>` : ""}
+      </div>
+    `;
+  }
+
+  function renderBanMetric(metric) {
+    const isVac = String(metric.value).toLowerCase().includes("vac");
+    const banClass = isVac ? "spx-ban-vac" : "spx-ban-game";
+    return `
+      <div class="spx-metric spx-metric-ban ${banClass}">
+        <div class="spx-metric-label">${escapeHtml(metric.label)}</div>
+        <div class="spx-ban-badge">
+          <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
+        </div>
       </div>
     `;
   }

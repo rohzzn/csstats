@@ -1,16 +1,18 @@
 {
   "manifest_version": 3,
-  "name": "CS2 Recon",
-  "short_name": "CS2 Recon",
-  "version": "1.0.0",
-  "description": "CS2 stats on every Steam profile. FACEIT rank, CS Rating, competitive ranks, Leetify ratings, account age and friend code.",
+  "name": "CS Stats",
+  "short_name": "CS Stats",
+  "version": "1.1.0",
+  "description": "CS2 stats on every Steam profile — FACEIT rank, CS Rating, Leetify ratings, commendations, friend code and AllStar clips.",
   "permissions": [],
   "host_permissions": [
     "https://steamcommunity.com/*",
     "https://api-public.cs-prod.leetify.com/*",
     "https://open.faceit.com/*",
     "https://csstats.gg/*",
-    "https://api.steampowered.com/*"
+    "https://api.steampowered.com/*",
+    "http://127.0.0.1:3000/*",
+    "https://a1.allstar.gg/*"
   ],
   "background": {
     "service_worker": "background.js"
@@ -35,7 +37,8 @@
       "resources": [
         "faceit/*.svg",
         "csranks/*.svg",
-        "wingman/*.svg"
+        "wingman/*.svg",
+        "commendations/*.svg"
       ],
       "matches": [
         "https://steamcommunity.com/*"
@@ -48,7 +51,7 @@
     "128": "icon128.png"
   },
   "action": {
-    "default_title": "CS2 Recon",
+    "default_title": "CS Stats",
     "default_icon": {
       "16": "icon16.png",
       "48": "icon48.png",

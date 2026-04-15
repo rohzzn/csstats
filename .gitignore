@@ -1,0 +1,15 @@
+# Dependencies
+server/node_modules/
+
+# Environment / secrets
+server/.env
+
+# Diagnostic / temp scripts
+server/probe_allstar.js
+server/test_rohzzn.js
+server/diag.js
+server/diag2.js
+
+# OS
+.DS_Store
+Thumbs.db

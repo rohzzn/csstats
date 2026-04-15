@@ -151,6 +151,78 @@
 #spx-cs2-profile-intel .spx-premier-gold .spx-premier-badge { background: rgba(220, 165, 50, 0.14); }
 #spx-cs2-profile-intel .spx-premier-gold .spx-metric-value  { color: #e4a83c; }
 
+/* ── Stat line divider ────────────────────────────── */
+
+#spx-cs2-profile-intel .spx-stat-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+  margin: 0 14px;
+}
+
+/* ── Commendation strip ───────────────────────────── */
+
+#spx-cs2-profile-intel .spx-commend-strip {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+#spx-cs2-profile-intel .spx-commend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#spx-cs2-profile-intel .spx-commend-icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+#spx-cs2-profile-intel .spx-commend-value {
+  font-size: 15px;
+  font-weight: 600;
+  color: #dde4ec;
+  line-height: 1;
+}
+
+/* ── Ban badge ────────────────────────────────────── */
+
+#spx-cs2-profile-intel .spx-metric-ban {
+  padding-right: 16px;
+  margin-right: 16px;
+}
+
+#spx-cs2-profile-intel .spx-ban-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 10px 4px;
+  border-radius: 4px;
+}
+
+#spx-cs2-profile-intel .spx-metric-ban .spx-metric-value {
+  margin-top: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+/* VAC ban */
+#spx-cs2-profile-intel .spx-ban-vac .spx-ban-badge { background: rgba(220, 50, 50, 0.15); }
+#spx-cs2-profile-intel .spx-ban-vac .spx-metric-value { color: #e05555; }
+#spx-cs2-profile-intel .spx-ban-vac .spx-metric-label { color: #c04040; }
+
+/* Game ban */
+#spx-cs2-profile-intel .spx-ban-game .spx-ban-badge { background: rgba(210, 130, 40, 0.14); }
+#spx-cs2-profile-intel .spx-ban-game .spx-metric-value { color: #d4893a; }
+#spx-cs2-profile-intel .spx-ban-game .spx-metric-label { color: #b07030; }
+
 /* ── Provider note ────────────────────────────────── */
 
 #spx-cs2-profile-intel .spx-provider-note {
@@ -229,4 +301,121 @@
     height: 24px;
     margin-right: 10px;
   }
+}
+
+/* ══════════════════════════════════════════════════
+   AllStar Clips Section  (#spx-cs2-clips-intel)
+   ══════════════════════════════════════════════════ */
+
+#spx-cs2-clips-intel.spx-showcase {
+  margin-bottom: 18px;
+}
+
+#spx-cs2-clips-intel .spx-showcase-header {
+  margin-bottom: 8px;
+}
+
+#spx-cs2-clips-intel .spx-shell {
+  padding: 4px 0 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* Grid — 3 per row, wraps naturally */
+#spx-cs2-clips-intel .spx-clips-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+/* Each clip card */
+#spx-cs2-clips-intel .spx-clip {
+  position: relative;
+  border-radius: 5px;
+  overflow: hidden;
+  cursor: pointer;
+  background: #000;
+}
+
+#spx-cs2-clips-intel .spx-clip:hover {
+  outline: 1px solid rgba(255,255,255,0.2);
+}
+
+/* Thumbnail */
+#spx-cs2-clips-intel .spx-clip-thumb {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+}
+
+/* Inline video player (AllStar) */
+#spx-cs2-clips-intel .spx-clip-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+}
+
+
+/* Info overlay — fades in on hover */
+#spx-cs2-clips-intel .spx-clip-info {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 22px 8px 6px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+#spx-cs2-clips-intel .spx-clip:not(.spx-clip-playing):hover .spx-clip-info {
+  opacity: 1;
+}
+
+#spx-cs2-clips-intel .spx-clip-title {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #eaeaea;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+#spx-cs2-clips-intel .spx-clip-views {
+  display: block;
+  font-size: 9px;
+  color: rgba(255, 255, 255, 0.55);
+  margin-top: 2px;
+}
+
+
+/* Play button overlay */
+#spx-cs2-clips-intel .spx-play-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 38px;
+  height: 38px;
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 13px;
+  padding-left: 3px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+
+#spx-cs2-clips-intel .spx-clip:not(.spx-clip-playing):hover .spx-play-btn {
+  opacity: 1;
 }
