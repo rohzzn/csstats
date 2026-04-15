@@ -1,4 +1,5 @@
 const SETTINGS = Object.freeze({
+  steamApiKey: "2855FF7B8929866B9CD7AD3265D1C0C2",
   leetifyApiKey: "6d7de76a-726a-460d-a41b-34d581bf2013",
   faceitApiKey: "b0ce56e8-e9a2-45e7-82ee-7310a0549d0f",
   enableLeetify: true,
@@ -10,7 +11,7 @@ const SETTINGS = Object.freeze({
   protectedScrapeDelayMs: 2200
 });
 
-const PROVIDER_ORDER = ["faceit", "leetify"];
+const PROVIDER_ORDER = ["steam", "faceit", "leetify", "csstats"];
 const providerCache = new Map();
 const inflightRequests = new Map();
 
@@ -36,6 +37,7 @@ async function buildProfileBundle(message) {
   const settings = SETTINGS;
 
   const providerTasks = {
+    steam: () => getCachedProvider("steam", steamId, settings, force, () => fetchSteamData(steamId, settings)),
     faceit: () => getCachedProvider("faceit", steamId, settings, force, () => fetchFaceitData(steamId, settings)),
     leetify: () => getCachedProvider("leetify", steamId, settings, force, () => fetchLeetifyData(steamId, settings)),
     csrep: () => getCachedProvider("csrep", steamId, settings, force, () => fetchCsRepData(steamId, settings)),
@@ -103,93 +105,183 @@ function getProviderCacheTtl(providerResult, defaultTtl) {
   return 30 * 1000;
 }
 
-async function fetchLeetifyData(steamId, settings) {
-  if (!settings.enableLeetify) {
-    return makeProviderResult("leetify", "disabled", {
-      message: "Leetify is disabled."
-    });
+async function fetchSteamData(steamId, settings) {
+  if (!settings.steamApiKey) {
+    return makeProviderResult("steam", "not_found", {});
   }
 
-  const headers = {
-    Accept: "application/json"
-  };
-
-  if (settings.leetifyApiKey) {
-    headers.Authorization = `Bearer ${settings.leetifyApiKey}`;
-  }
+  const key = settings.steamApiKey;
+  const profileUrl = `https://steamcommunity.com/profiles/${steamId}`;
 
   try {
-    const profile = await fetchJson(
-      `https://api-public.cs-prod.leetify.com/v3/profile?steam64_id=${encodeURIComponent(steamId)}`,
-      { headers }
-    );
-
-    if (!profile) {
-      return makeProviderResult("leetify", "not_found", {
-        message: "No Leetify profile was found for this Steam account."
-      });
-    }
-
-    const aim = asNumber(profile?.rating?.aim);
-    const positioning = asNumber(profile?.rating?.positioning);
-    const utility = asNumber(profile?.rating?.utility);
-    const reaction = asNumber(profile?.stats?.reaction_time_ms);
-    const peakPremier = resolveLeetifyPeakPremier(profile);
-    const premier = asNumber(profile?.ranks?.premier);
-    const competitiveRanks = resolveLeetifyCompetitiveRanks(profile?.ranks?.competitive);
-    const wingmanRanks = resolveLeetifyWingmanRanks(profile?.ranks?.wingman_competitive ?? profile?.ranks?.wingman);
-
-    const metrics = compact([
-      makeMetric("Premier", formatInteger(premier)),
-      makeMetric("Peak Premier", formatInteger(peakPremier)),
-      makeMetric("Aim", formatDecimal(aim, 1)),
-      makeMetric("Positioning", formatDecimal(positioning, 1)),
-      makeMetric("Utility", formatDecimal(utility, 1)),
-      makeMetric("Reaction", formatMilliseconds(reaction))
+    const [summaryRes, bansRes, statsRes] = await Promise.all([
+      fetchJson(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${key}&steamids=${steamId}`).catch(() => null),
+      fetchJson(`https://api.steampowered.com/ISteamUser/GetPlayerBans/v1/?key=${key}&steamids=${steamId}`).catch(() => null),
+      fetchJson(`https://api.steampowered.com/ISteamUserStats/GetUserStatsForGame/v2/?key=${key}&steamid=${steamId}&appid=730`).catch(() => null)
     ]);
 
-    return makeProviderResult("leetify", "ready", {
-      title: profile.name || "Leetify",
-      message: profile.privacy_mode && profile.privacy_mode !== "public" ? `Profile privacy is set to ${profile.privacy_mode}.` : "",
-      url: `https://leetify.com/app/profile/${steamId}`,
-      competitiveRanks,
-      wingmanRanks,
+    const player = summaryRes?.response?.players?.[0];
+    const banInfo = bansRes?.players?.[0];
+    const rawStats = statsRes?.playerstats?.stats || [];
+
+    const statMap = {};
+    for (const s of rawStats) { statMap[s.name] = s.value; }
+
+    const accountAge = player?.timecreated ? formatAccountAge(player.timecreated) : null;
+    const friendCode = getSteamFriendCode(steamId);
+
+    let banStatus = null;
+    if (banInfo) {
+      if (banInfo.VACBanned) {
+        banStatus = `${banInfo.NumberOfVACBans} VAC`;
+      } else if (banInfo.NumberOfGameBans > 0) {
+        banStatus = `${banInfo.NumberOfGameBans} Game Ban`;
+      } else {
+        banStatus = "Clean";
+      }
+    }
+
+    const commendFriendly = asNumber(statMap.total_commendation_friendly ?? statMap.commendation_friendly);
+    const commendTeaching = asNumber(statMap.total_commendation_teaching ?? statMap.commendation_teaching);
+    const commendLeader   = asNumber(statMap.total_commendation_leader   ?? statMap.commendation_leader);
+    const totalCommend = compact([commendFriendly, commendTeaching, commendLeader])
+      .reduce((sum, v) => sum + v, 0);
+
+    const metrics = compact([
+      makeMetric("Commends", totalCommend > 0 ? formatInteger(totalCommend) : null)
+    ]);
+
+    if (!metrics.length) {
+      return makeProviderResult("steam", "not_found", {});
+    }
+
+    return makeProviderResult("steam", "ready", {
+      title: player?.personaname || "Steam",
+      message: "",
+      url: profileUrl,
       metrics,
       details: []
     });
-  } catch (error) {
-    if (error.status === 404) {
-      return makeProviderResult("leetify", "not_found", {
-        message: "No Leetify profile was found for this Steam account.",
-        url: `https://leetify.com/app/profile/${steamId}`
-      });
-    }
-
-    if (error.status === 401) {
-      return makeProviderResult("leetify", "setup", {
-        message: "The bundled Leetify API key was rejected.",
-        url: `https://leetify.com/app/profile/${steamId}`
-      });
-    }
-
-    return makeProviderResult("leetify", "error", {
-      message: normalizeHttpError(error, "Leetify could not be reached right now."),
-      url: `https://leetify.com/app/profile/${steamId}`
-    });
+  } catch (_error) {
+    return makeProviderResult("steam", "not_found", {});
   }
 }
 
-async function fetchFaceitData(steamId, settings) {
-  if (!settings.enableFaceit) {
-    return makeProviderResult("faceit", "disabled", {
-      message: "FACEIT is disabled."
-    });
+function getSteamFriendCode(steamId64Str) {
+  const DICT = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+  function swapBytes32(n) {
+    return ((n & 0xFFn) << 24n) |
+           (((n >> 8n) & 0xFFn) << 16n) |
+           (((n >> 16n) & 0xFFn) << 8n) |
+           ((n >> 24n) & 0xFFn);
   }
 
-  if (!settings.faceitApiKey) {
-    return makeProviderResult("faceit", "setup", {
-      message: "The bundled FACEIT API key is missing."
-    });
+  function reverseEndianness64(val) {
+    const lo = val & 0xFFFFFFFFn;
+    const hi = (val >> 32n) & 0xFFFFFFFFn;
+    return (swapBytes32(lo) << 32n) | swapBytes32(hi);
+  }
+
+  try {
+    let steamId = BigInt(steamId64Str);
+    let mask = 0n;
+
+    for (let i = 0; i < 8; i++) {
+      const nibble = steamId & 0xFn;
+      steamId >>= 4n;
+      const a = (mask << 4n) | nibble;
+      mask = ((mask >> 28n) << 32n) | a;
+      mask = ((mask >> 31n) << 32n) | (a << 1n); // hash bit = 0
+    }
+
+    mask = reverseEndianness64(mask);
+    mask >>= 20n; // skip 4-char AAAA prefix (4 × 5 bits)
+
+    let codes = "";
+    for (let i = 0; i < 9; i++) {
+      codes += DICT[Number(mask & 0x1Fn)];
+      mask >>= 5n;
+    }
+
+    return "CSGO-" + codes.slice(0, 5) + "-" + codes.slice(5);
+  } catch (_e) {
+    return null;
+  }
+}
+
+function formatAccountAge(timecreated) {
+  const ageMs = Date.now() - timecreated * 1000;
+  const years = Math.floor(ageMs / (365.25 * 24 * 60 * 60 * 1000));
+  const months = Math.floor((ageMs % (365.25 * 24 * 60 * 60 * 1000)) / (30.44 * 24 * 60 * 60 * 1000));
+  if (years >= 1) {
+    return months > 0 ? `${years}y ${months}m` : `${years}y`;
+  }
+  return `${months}m`;
+}
+
+async function fetchLeetifyData(steamId, settings) {
+  if (!settings.enableLeetify) {
+    return makeProviderResult("leetify", "not_found", {});
+  }
+
+  const profileUrl = `https://leetify.com/app/profile/${steamId}`;
+  const apiUrl = `https://api-public.cs-prod.leetify.com/v3/profile?steam64_id=${encodeURIComponent(steamId)}`;
+
+  let profile = null;
+
+  try {
+    const headers = { Accept: "application/json" };
+    if (settings.leetifyApiKey) {
+      headers.Authorization = `Bearer ${settings.leetifyApiKey}`;
+    }
+    profile = await fetchJson(apiUrl, { headers });
+  } catch (firstError) {
+    if (firstError.status === 401 && settings.leetifyApiKey) {
+      try {
+        profile = await fetchJson(apiUrl, { headers: { Accept: "application/json" } });
+      } catch (_) {
+        // Both attempts failed — profile stays null.
+      }
+    }
+  }
+
+  if (!profile) {
+    return makeProviderResult("leetify", "not_found", { url: profileUrl });
+  }
+
+  const aim = asNumber(profile?.rating?.aim);
+  const positioning = asNumber(profile?.rating?.positioning);
+  const utility = asNumber(profile?.rating?.utility);
+  const reaction = asNumber(profile?.stats?.reaction_time_ms);
+  const peakPremier = resolveLeetifyPeakPremier(profile);
+  const premier = asNumber(profile?.ranks?.premier);
+  const competitiveRanks = resolveLeetifyCompetitiveRanks(profile?.ranks?.competitive);
+  const wingmanRanks = resolveLeetifyWingmanRanks(profile?.ranks?.wingman_competitive ?? profile?.ranks?.wingman);
+
+  const metrics = compact([
+    makeMetric("Premier", formatInteger(premier)),
+    makeMetric("Peak Premier", formatInteger(peakPremier)),
+    makeMetric("Aim", formatDecimal(aim, 1)),
+    makeMetric("Positioning", formatDecimal(positioning, 1)),
+    makeMetric("Utility", formatDecimal(utility, 1)),
+    makeMetric("Reaction", formatMilliseconds(reaction))
+  ]);
+
+  return makeProviderResult("leetify", "ready", {
+    title: profile.name || "Leetify",
+    message: "",
+    url: profileUrl,
+    competitiveRanks,
+    wingmanRanks,
+    metrics,
+    details: []
+  });
+}
+
+async function fetchFaceitData(steamId, settings) {
+  if (!settings.enableFaceit || !settings.faceitApiKey) {
+    return makeProviderResult("faceit", "not_found", {});
   }
 
   const headers = {
@@ -198,10 +290,15 @@ async function fetchFaceitData(steamId, settings) {
   };
 
   try {
-    const player = await fetchJson(
-      `https://open.faceit.com/data/v4/players?game=cs2&game_player_id=${encodeURIComponent(steamId)}`,
-      { headers }
-    );
+    const [player, summaryRes] = await Promise.all([
+      fetchJson(
+        `https://open.faceit.com/data/v4/players?game=cs2&game_player_id=${encodeURIComponent(steamId)}`,
+        { headers }
+      ),
+      settings.steamApiKey
+        ? fetchJson(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${settings.steamApiKey}&steamids=${steamId}`).catch(() => null)
+        : Promise.resolve(null)
+    ]);
 
     const stats = await fetchJson(
       `https://open.faceit.com/data/v4/players/${encodeURIComponent(player.player_id)}/stats/cs2`,
@@ -216,20 +313,21 @@ async function fetchFaceitData(steamId, settings) {
       2
     );
 
+    const steamPlayer = summaryRes?.response?.players?.[0];
+    const accountAge = steamPlayer?.timecreated ? formatAccountAge(steamPlayer.timecreated) : null;
+    const friendCode = getSteamFriendCode(steamId);
+
     const metrics = compact([
       makeMetric("ELO", formatInteger(cs2.faceit_elo)),
       makeMetric("Matches", formatInteger(pickAliasedNumber(lifetime, ["Matches"]))),
-      makeMetric("Win rate", formatPercent(pickAliasedNumber(lifetime, ["Win Rate %", "Win Rate"]), 1)),
-      makeMetric("K/D", kd)
+      makeMetric("K/D", kd),
+      makeMetric("Account Age", accountAge),
+      makeMetric("Friend Code", friendCode)
     ]);
 
-    const details = compact([
-      makeDetail("Nickname", player.nickname),
-      makeDetail("Country", player.country),
-      makeDetail("Headshots", formatPercent(pickAliasedNumber(lifetime, ["Average Headshots %", "Headshots %", "Average HS %"]), 1)),
-      makeDetail("Longest streak", formatInteger(pickAliasedNumber(lifetime, ["Longest Win Streak"]))),
-      makeDetail("Region", normalizeText(cs2.region))
-    ]);
+    if (!metrics.length) {
+      return makeProviderResult("faceit", "not_found", {});
+    }
 
     return makeProviderResult("faceit", "ready", {
       title: player.nickname || "FACEIT",
@@ -238,24 +336,10 @@ async function fetchFaceitData(steamId, settings) {
       rankImage,
       rankLabel: resolveFaceitRankLabel(cs2),
       metrics,
-      details
+      details: []
     });
-  } catch (error) {
-    if (error.status === 404) {
-      return makeProviderResult("faceit", "not_found", {
-        message: "No FACEIT profile was found for this Steam account."
-      });
-    }
-
-    if (error.status === 401 || error.status === 403) {
-      return makeProviderResult("faceit", "setup", {
-        message: "The bundled FACEIT API key was rejected."
-      });
-    }
-
-    return makeProviderResult("faceit", "error", {
-      message: normalizeHttpError(error, "FACEIT could not be reached right now.")
-    });
+  } catch (_error) {
+    return makeProviderResult("faceit", "not_found", {});
   }
 }
 
@@ -325,9 +409,7 @@ async function fetchCsRepData(steamId, settings) {
 
 async function fetchCsStatsData(steamId, settings) {
   if (!settings.enableCsStats) {
-    return makeProviderResult("csstats", "disabled", {
-      message: "CSStats is disabled in the extension settings."
-    });
+    return makeProviderResult("csstats", "not_found", {});
   }
 
   const profileUrl = `https://csstats.gg/player/${steamId}`;
@@ -336,35 +418,16 @@ async function fetchCsStatsData(steamId, settings) {
     const html = await fetchText(profileUrl, {
       credentials: "include",
       headers: {
-        Accept: "text/html"
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+        "Referer": "https://steamcommunity.com/"
       }
     });
 
     return normalizeCsStatsText(steamId, profileUrl, extractReadableText(html));
-  } catch (error) {
-    if ((error.status === 401 || error.status === 403) && settings.enableProtectedScraping) {
-      const scraped = await scrapeProtectedPage(profileUrl, settings.protectedScrapeDelayMs);
-      return normalizeCsStatsText(steamId, profileUrl, scraped.bodyText || "");
-    }
-
-    if (error.status === 404) {
-      return makeProviderResult("csstats", "not_found", {
-        message: "No CSStats page was found for this Steam account.",
-        url: profileUrl
-      });
-    }
-
-    if (error.status === 401 || error.status === 403) {
-      return makeProviderResult("csstats", "setup", {
-        message: "Log in to csstats.gg in this browser to unlock CSStats data.",
-        url: profileUrl
-      });
-    }
-
-    return makeProviderResult("csstats", "error", {
-      message: normalizeHttpError(error, "CSStats could not be reached right now."),
-      url: profileUrl
-    });
+  } catch (_error) {
+    return makeProviderResult("csstats", "not_found", {});
   }
 }
 
@@ -498,25 +561,8 @@ function normalizeCsStatsText(steamId, profileUrl, textInput) {
     makeMetric("FACEIT", faceitValue)
   ]);
 
-  if (!metrics.length && trackingMessage) {
-    return makeProviderResult("csstats", "ready", {
-      title: "CSStats",
-      message: trackingMessage,
-      url: profileUrl,
-      metrics: compact([
-        makeMetric("Tracking", "Limited")
-      ]),
-      details: compact([
-        makeDetail("Steam64", steamId)
-      ])
-    });
-  }
-
   if (!metrics.length) {
-    return makeProviderResult("csstats", "setup", {
-      message: "CSStats loaded, but its profile data was not exposed yet. Open the CSStats page once, then reload Steam.",
-      url: profileUrl
-    });
+    return makeProviderResult("csstats", "not_found", {});
   }
 
   return makeProviderResult("csstats", "ready", {

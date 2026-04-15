@@ -1,6 +1,6 @@
 (function () {
   const ROOT_ID = "spx-cs2-profile-intel";
-  const DISPLAY_ORDER = ["faceit", "leetify"];
+  const DISPLAY_ORDER = ["steam", "faceit", "leetify", "csstats"];
 
   const state = {
     steamId: null,
@@ -154,7 +154,21 @@
     const providerMap = new Map(
       (Array.isArray(bundle.providers) ? bundle.providers : []).map((provider) => [provider.id, provider])
     );
-    const providers = DISPLAY_ORDER.map((providerId) => providerMap.get(providerId) || makeFallbackProvider(providerId));
+
+    const providers = DISPLAY_ORDER
+      .map((providerId) => providerMap.get(providerId) || makeFallbackProvider(providerId))
+      .filter((provider) => {
+        if (provider.state !== "ready") { return false; }
+        const hasMetrics = Array.isArray(provider.metrics) && provider.metrics.length > 0;
+        const hasRanks = (Array.isArray(provider.competitiveRanks) && provider.competitiveRanks.length > 0) ||
+                         (Array.isArray(provider.wingmanRanks) && provider.wingmanRanks.length > 0);
+        return hasMetrics || hasRanks;
+      });
+
+    if (!providers.length) {
+      root.innerHTML = "";
+      return;
+    }
 
     root.innerHTML = `
       <div class="profile_customization_header spx-showcase-header">Stats</div>

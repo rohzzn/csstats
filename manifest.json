@@ -13,7 +13,8 @@
     "https://open.faceit.com/*",
     "https://csrep.gg/*",
     "https://api.csrep.gg/*",
-    "https://csstats.gg/*"
+    "https://csstats.gg/*",
+    "https://api.steampowered.com/*"
   ],
   "background": {
     "service_worker": "background.js"
