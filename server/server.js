@@ -7,6 +7,7 @@ const cors = require("cors");
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const PORT                = Number(process.env.PORT)       || 3000;
+const HOST                = process.env.HOST || "0.0.0.0";
 const STEAM_USERNAME      = process.env.STEAM_BOT_USERNAME;
 const STEAM_PASSWORD      = process.env.STEAM_BOT_PASSWORD;
 const SHARED_SECRET       = process.env.STEAM_BOT_SHARED_SECRET || null;
@@ -174,6 +175,19 @@ function setCached(steamId, data)   { cache.set(steamId, { data, expiresAt: Date
 const app = express();
 app.use(cors({ origin: [/^chrome-extension:\/\//, /^http:\/\/127\.0\.0\.1/, /^http:\/\/localhost/] }));
 
+app.get("/", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "cs2-recon-server",
+    gcReady,
+    endpoints: ["/status", "/healthz", "/profile/:steamId"]
+  });
+});
+
+app.get("/healthz", (_req, res) => {
+  res.json({ ok: true, gcReady });
+});
+
 app.get("/status", (_req, res) => {
   res.json({ gcReady, queueLength: pendingQueue.length, cacheSize: cache.size, uptime: Math.round(process.uptime()) });
 });
@@ -214,8 +228,8 @@ app.get("/profile/:steamId", async (req, res) => {
   }
 });
 
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`[Server] CS2 Recon GC proxy → http://127.0.0.1:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`[Server] CS2 Recon GC proxy listening on ${HOST}:${PORT}`);
   console.log("[Server] Waiting for Steam login...");
 });
 
