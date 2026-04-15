@@ -5,7 +5,7 @@ const SETTINGS = Object.freeze({
   enableLeetify: true,
   enableFaceit: true,
   enableCsStats: true,
-  gcServerUrl: "http://127.0.0.1:3000",
+  gcServerUrl: "https://csstats-production.up.railway.app",
   allstarPublicKey: "3b717a42-ef7e-48d6-bd12-eba0daad9d7f",
   allstarServerKey: "90a30aed-0dfe-4220-9ac6-4e5c36a7c559",
   cacheTtlMs: 5 * 60 * 1000

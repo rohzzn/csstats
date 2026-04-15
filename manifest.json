@@ -11,7 +11,7 @@
     "https://open.faceit.com/*",
     "https://csstats.gg/*",
     "https://api.steampowered.com/*",
-    "http://127.0.0.1:3000/*",
+    "https://csstats-production.up.railway.app/*",
     "https://a1.allstar.gg/*"
   ],
   "background": {
