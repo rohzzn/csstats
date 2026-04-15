@@ -1,0 +1,232 @@
+#spx-cs2-profile-intel.spx-showcase {
+  margin-bottom: 18px;
+}
+
+#spx-cs2-profile-intel .spx-showcase-header {
+  margin-bottom: 8px;
+}
+
+#spx-cs2-profile-intel .spx-shell {
+  padding: 4px 0 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+/* ── Row list ─────────────────────────────────────── */
+
+#spx-cs2-profile-intel .spx-row-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Provider row ─────────────────────────────────── */
+
+#spx-cs2-profile-intel .spx-provider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+#spx-cs2-profile-intel .spx-provider-row:first-child {
+  border-top: none;
+  padding-top: 2px;
+}
+
+/* ── Stat line (icon + metrics inline) ────────────── */
+
+#spx-cs2-profile-intel .spx-stat-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+}
+
+/* ── FACEIT rank icon ─────────────────────────────── */
+
+#spx-cs2-profile-intel .spx-rank-image {
+  display: block;
+  height: 30px;
+  width: auto;
+  object-fit: contain;
+  margin-right: 14px;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+/* ── Metric grid ──────────────────────────────────── */
+
+#spx-cs2-profile-intel .spx-metric-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 6px 0;
+}
+
+#spx-cs2-profile-intel .spx-metric {
+  padding-right: 14px;
+  margin-right: 14px;
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  flex-shrink: 0;
+}
+
+#spx-cs2-profile-intel .spx-metric:last-child {
+  border-right: none;
+  padding-right: 0;
+  margin-right: 0;
+}
+
+#spx-cs2-profile-intel .spx-metric-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6d8aa3;
+}
+
+#spx-cs2-profile-intel .spx-metric-value {
+  margin-top: 4px;
+  font-size: 16px;
+  line-height: 1;
+  color: #dde4ec;
+  font-weight: 600;
+}
+
+#spx-cs2-profile-intel .spx-metric-meta {
+  margin-top: 3px;
+  font-size: 9px;
+  color: #7a9ab8;
+}
+
+/* ── Premier rating badge ─────────────────────────── */
+
+#spx-cs2-profile-intel .spx-metric-premier {
+  padding-right: 16px;
+  margin-right: 16px;
+}
+
+#spx-cs2-profile-intel .spx-premier-badge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 10px 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#spx-cs2-profile-intel .spx-metric-premier .spx-metric-value {
+  margin-top: 0;
+  font-size: 19px;
+}
+
+/* Tier: none / unranked */
+#spx-cs2-profile-intel .spx-premier-none .spx-premier-badge { background: rgba(150, 165, 180, 0.08); }
+#spx-cs2-profile-intel .spx-premier-none .spx-metric-value  { color: #96a8b8; }
+
+/* Tier: grey  (0 – 4,999) */
+#spx-cs2-profile-intel .spx-premier-grey .spx-premier-badge { background: rgba(160, 175, 190, 0.10); }
+#spx-cs2-profile-intel .spx-premier-grey .spx-metric-value  { color: #b0bec8; }
+
+/* Tier: light blue  (5,000 – 9,999) */
+#spx-cs2-profile-intel .spx-premier-lightblue .spx-premier-badge { background: rgba(80, 190, 240, 0.11); }
+#spx-cs2-profile-intel .spx-premier-lightblue .spx-metric-value  { color: #56c6f0; }
+
+/* Tier: blue  (10,000 – 14,999) */
+#spx-cs2-profile-intel .spx-premier-blue .spx-premier-badge { background: rgba(60, 120, 220, 0.13); }
+#spx-cs2-profile-intel .spx-premier-blue .spx-metric-value  { color: #6aaae0; }
+
+/* Tier: purple  (15,000 – 19,999) */
+#spx-cs2-profile-intel .spx-premier-purple .spx-premier-badge { background: rgba(120, 80, 210, 0.14); }
+#spx-cs2-profile-intel .spx-premier-purple .spx-metric-value  { color: #aa7ee8; }
+
+/* Tier: pink  (20,000 – 24,999) */
+#spx-cs2-profile-intel .spx-premier-pink .spx-premier-badge { background: rgba(205, 65, 165, 0.13); }
+#spx-cs2-profile-intel .spx-premier-pink .spx-metric-value  { color: #e060be; }
+
+/* Tier: red  (25,000 – 29,999) */
+#spx-cs2-profile-intel .spx-premier-red .spx-premier-badge { background: rgba(210, 50, 50, 0.13); }
+#spx-cs2-profile-intel .spx-premier-red .spx-metric-value  { color: #e25555; }
+
+/* Tier: gold  (30,000+) */
+#spx-cs2-profile-intel .spx-premier-gold .spx-premier-badge { background: rgba(220, 165, 50, 0.14); }
+#spx-cs2-profile-intel .spx-premier-gold .spx-metric-value  { color: #e4a83c; }
+
+/* ── Provider note ────────────────────────────────── */
+
+#spx-cs2-profile-intel .spx-provider-note {
+  font-size: 11px;
+  color: #8ca7c2;
+  line-height: 1.4;
+}
+
+/* ── Competitive ranks strip ──────────────────────── */
+
+#spx-cs2-profile-intel .spx-competitive-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 10px;
+  padding-left: 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+#spx-cs2-profile-intel .spx-competitive-rank {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+#spx-cs2-profile-intel .spx-competitive-image {
+  display: block;
+  height: 30px;
+  width: auto;
+  object-fit: contain;
+}
+
+#spx-cs2-profile-intel .spx-competitive-map {
+  font-size: 9px;
+  color: #6d8aa3;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ── Loading / error ──────────────────────────────── */
+
+#spx-cs2-profile-intel .spx-loading-copy {
+  font-size: 11px;
+  color: #6d8aa3;
+}
+
+#spx-cs2-profile-intel .spx-inline-note {
+  padding: 6px 0;
+  color: #8ca7c2;
+  font-size: 11px;
+}
+
+/* ── Responsive ───────────────────────────────────── */
+
+@media (max-width: 910px) {
+  #spx-cs2-profile-intel .spx-metric-value {
+    font-size: 13px;
+  }
+
+  #spx-cs2-profile-intel .spx-metric-premier .spx-metric-value {
+    font-size: 16px;
+  }
+
+  #spx-cs2-profile-intel .spx-metric {
+    padding-right: 10px;
+    margin-right: 10px;
+  }
+
+  #spx-cs2-profile-intel .spx-metric-premier {
+    padding-right: 12px;
+    margin-right: 12px;
+  }
+
+  #spx-cs2-profile-intel .spx-rank-image {
+    height: 24px;
+    margin-right: 10px;
+  }
+}

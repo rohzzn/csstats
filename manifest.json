@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "Steam CS2 Profile Intel",
+  "version": "0.1.0",
+  "description": "Shows FACEIT and Leetify information directly on Steam profiles.",
+  "permissions": [
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://steamcommunity.com/*",
+    "https://api-public.cs-prod.leetify.com/*",
+    "https://open.faceit.com/*",
+    "https://csrep.gg/*",
+    "https://api.csrep.gg/*",
+    "https://csstats.gg/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://steamcommunity.com/id/*",
+        "https://steamcommunity.com/profiles/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "styles.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "faceit/*.svg",
+        "csranks/*.svg",
+        "wingman/*.svg"
+      ],
+      "matches": [
+        "https://steamcommunity.com/*"
+      ]
+    }
+  ],
+  "action": {
+    "default_title": "Steam CS2 Profile Intel"
+  }
+}
