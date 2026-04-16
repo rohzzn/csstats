@@ -272,17 +272,20 @@ function formatAccountAge(timecreated) {
 
 
 async function fetchGcData(steamId, settings) {
-  const serverUrl = settings.gcServerUrl;
+  const serverUrl = String(settings?.gcServerUrl || "").trim().replace(/\/+$/, "");
   if (!serverUrl) return makeProviderResult("gc", "disabled", {});
-
   const steamProfileUrl = `https://steamcommunity.com/profiles/${steamId}`;
 
   try {
     const data = await fetchJson(`${serverUrl}/profile/${steamId}`, {
       headers: { Accept: "application/json" }
-    });
+    }, 5000);
 
-    if (!data.ok || !data.found) {
+    if (!data?.ok) {
+      return makeProviderResult("gc", "disabled", {});
+    }
+
+    if (!data.found) {
       return makeProviderResult("gc", "not_found", {});
     }
 
@@ -355,7 +358,6 @@ async function fetchGcData(steamId, settings) {
       details: []
     });
   } catch (_err) {
-    // Server not running — silently hide this row
     return makeProviderResult("gc", "disabled", {});
   }
 }
@@ -627,8 +629,8 @@ function normalizeCsStatsText(steamId, profileUrl, textInput) {
 }
 
 
-async function fetchJson(url, options = {}) {
-  const response = await fetchWithTimeout(url, options);
+async function fetchJson(url, options = {}, timeoutMs = 15000) {
+  const response = await fetchWithTimeout(url, options, timeoutMs);
   const contentType = response.headers.get("content-type") || "";
 
   if (!response.ok) {

@@ -59,8 +59,10 @@ For Railway:
 
 - Set the service root to `server/`
 - Set `STEAM_BOT_USERNAME`, `STEAM_BOT_PASSWORD`, and optionally `STEAM_BOT_SHARED_SECRET` as Railway environment variables
+- For the most reliable reconnects, also set `STEAM_BOT_REFRESH_TOKEN` once you have one
 - Do not hardcode Railway's assigned `PORT`; Railway injects it automatically
 - Keep `HOST=0.0.0.0` so Railway can reach the process
+- Point Railway's health check at `/readyz` if you want the platform to treat a lost GC session as unhealthy
 
 On first run, Steam may prompt for a Steam Guard code sent to your email. Enter it in the terminal. After that the server remembers the session.
 
@@ -79,12 +81,15 @@ Extension                  Local server (port 3000)        Valve Game Coordinato
 
 The server keeps a persistent GC session and processes one request at a time with a 500 ms throttle to respect Valve's rate limits. Responses are cached for 5 minutes.
 
-The extension automatically detects whether the server is running. If it is not, the CS2 row is silently hidden — all other rows still work normally.
+If Steam or the GC drops, the server now tries to recover automatically by restoring the Steam session, reasserting `gamesPlayed(730)`, waiting briefly for GC recovery on live requests, and on Railway optionally exiting after a long unhealthy period so the platform can restart it.
+
+The extension points at the hosted GC proxy. If that proxy is unavailable, the CS2 row is silently hidden while the other rows keep working.
 
 You can verify the server quickly with:
 
 - `/`
 - `/healthz`
+- `/readyz`
 - `/status`
 
 ### Running on startup (optional)
@@ -110,11 +115,11 @@ pm2 save && pm2 startup
 ## Data sources
 
 - **Steam Web API** — account age, friend code, wins, K/D, HS%, hours, ban info (API key required, bundled). Works on every public Steam profile.
-- **CS2 Game Coordinator** — Premier CS Rating, rank, wins queried directly from Valve's servers. Works on every Steam account. Requires the local server above.
+- **CS2 Game Coordinator** — Premier CS Rating, rank, wins queried directly from Valve's servers. Works on every Steam account. Requires the GC proxy server above.
 - **FACEIT** — rank, ELO, match count, K/D, HS% (API key required, bundled). Only appears when the player has a FACEIT account.
 - **Leetify** — CS Rating, skill ratings, ranks (public API, works for registered Leetify users)
 - **CSStats** — CS Rating, wins (public page fetch, no key needed; requires login on csstats.gg for some profiles)
 
 ## Privacy
 
-The extension reads the Steam64 ID from the profile page you are already viewing. That ID is used to look up stats from the services listed above. No data is stored or transmitted anywhere other than those services. The local GC server only ever communicates with your own machine (`127.0.0.1`) — nothing is sent to any third party.
+The extension reads the Steam64 ID from the profile page you are already viewing. That ID is used to look up stats from the services listed above. No data is stored or transmitted anywhere other than those services. GC lookups are sent to your configured proxy server, which may be a hosted deployment such as Railway.

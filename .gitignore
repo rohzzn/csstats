@@ -3,6 +3,8 @@ server/node_modules/
 
 # Environment / secrets
 server/.env
+server/.steam-state/
+server/*.log
 
 # Diagnostic / temp scripts
 server/probe_allstar.js
