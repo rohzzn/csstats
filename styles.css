@@ -13,6 +13,90 @@
   box-shadow: none;
 }
 
+.spx-header-medals {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.spx-header-medals-shell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  line-height: 0;
+}
+
+.spx-header-medal-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.spx-header-medal-item {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  flex: 0 0 auto;
+  line-height: 0;
+}
+
+.spx-header-medal-image {
+  display: block;
+  width: auto;
+  height: 30px;
+  max-width: none;
+  image-rendering: auto;
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.spx-header-medal-navs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 2px;
+}
+
+.spx-header-medal-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 12px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #8ba3bb;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.spx-header-medal-nav:hover:not(:disabled) {
+  color: #dce9f5;
+}
+
+.spx-header-medal-nav:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.spx-header-medal-nav:focus-visible {
+  outline: 1px solid rgba(120, 180, 255, 0.75);
+  outline-offset: 1px;
+}
+
+.persona_name.spx-header-medal-target .namehistory_link {
+  display: none !important;
+}
+
+.persona_name.spx-header-medal-target .actual_persona_name,
+.persona_name.spx-header-medal-target .spx-header-medals {
+  vertical-align: middle;
+}
+
 /* ── Row list ─────────────────────────────────────── */
 
 #spx-cs2-profile-intel .spx-row-list {
@@ -339,6 +423,23 @@
 /* ── Responsive ───────────────────────────────────── */
 
 @media (max-width: 910px) {
+  .spx-header-medals {
+    margin-left: 6px;
+  }
+
+  .spx-header-medal-list {
+    gap: 4px;
+  }
+
+  .spx-header-medal-item {
+    height: 26px;
+  }
+
+  .spx-header-medal-image {
+    width: auto;
+    height: 26px;
+  }
+
   #spx-cs2-profile-intel .spx-metric-value {
     font-size: 13px;
   }

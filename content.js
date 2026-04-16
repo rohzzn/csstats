@@ -1,14 +1,29 @@
 (function () {
   const ROOT_ID  = "spx-cs2-profile-intel";
   const CLIPS_ID = "spx-cs2-clips-intel";
+  const HEADER_MEDALS_ID = "spx-cs2-header-medals";
   const DISPLAY_ORDER = ["steam", "faceit", "leetify", "csstats"];
 
   const state = {
     steamId: null,
     profileUrl: null,
     root: null,
-    clipsRoot: null
+    clipsRoot: null,
+    headerMedals: [],
+    headerMedalIndex: 0,
+    headerMedalKey: ""
   };
+
+  let resizeQueued = false;
+
+  window.addEventListener("resize", () => {
+    if (resizeQueued) return;
+    resizeQueued = true;
+    requestAnimationFrame(() => {
+      resizeQueued = false;
+      renderHeaderMedals();
+    });
+  });
 
   start();
 
@@ -127,12 +142,14 @@
 
       renderBundle(state.root, response);
       renderClipsSection(state.clipsRoot, response);
+      renderHeaderMedals(response);
     } catch (error) {
       renderFatal(state.root, error.message || "The extension could not load provider data.");
     }
   }
 
   function renderLoading(root) {
+    clearHeaderMedals();
     root.innerHTML = `
       <div class="profile_customization_header spx-showcase-header">Stats</div>
       <div class="profile_customization_block">
@@ -147,6 +164,7 @@
   }
 
   function renderFatal(root, message) {
+    clearHeaderMedals();
     root.innerHTML = `
       <div class="profile_customization_header spx-showcase-header">Stats</div>
       <div class="profile_customization_block">
@@ -199,6 +217,78 @@
         </div>
       </div>
     `;
+  }
+
+  function renderHeaderMedals(bundle = null) {
+    const medals = bundle ? getGcMedals(bundle) : state.headerMedals;
+    const target = resolveHeaderMedalTarget();
+    let root = document.getElementById(HEADER_MEDALS_ID);
+
+    if (!medals.length || !target) {
+      clearHeaderMedals();
+      return;
+    }
+
+    prepareHeaderMedalTarget(target);
+    state.headerMedals = medals;
+
+    const medalKey = medals.map((medal) => `${medal.id}:${medal.image}`).join("|");
+    if (state.headerMedalKey !== medalKey) {
+      state.headerMedalKey = medalKey;
+      state.headerMedalIndex = 0;
+    }
+
+    if (!root) {
+      root = document.createElement("span");
+      root.id = HEADER_MEDALS_ID;
+      root.className = "spx-header-medals";
+    }
+
+    mountHeaderMedalRoot(target, root);
+
+    const visibleCount = getVisibleHeaderMedalCount();
+    const startIndex = normalizeHeaderMedalStart(state.headerMedalIndex, medals.length);
+    state.headerMedalIndex = startIndex;
+    const visibleMedals = getVisibleMedals(medals, startIndex, visibleCount);
+    const hasNavigation = medals.length > visibleCount;
+    const hasPrevious = startIndex > 0;
+    const hasNext = startIndex + visibleCount < medals.length;
+
+    root.innerHTML = `
+      <span class="spx-header-medals-shell">
+        <span class="spx-header-medal-list" aria-label="CS2 medals">
+          ${visibleMedals.map((medal) => `
+            <span class="spx-header-medal-item">
+              <img class="spx-header-medal-image" src="${escapeAttribute(medal.image)}" alt="${escapeAttribute(medal.title)}" title="${escapeAttribute(medal.title)}" />
+            </span>
+          `).join("")}
+        </span>
+        ${hasNavigation ? `
+          <span class="spx-header-medal-navs">
+            <button class="spx-header-medal-nav" type="button" data-direction="previous" aria-label="Show newer medals" ${hasPrevious ? "" : "disabled"}>
+              &#8249;
+            </button>
+            <button class="spx-header-medal-nav" type="button" data-direction="next" aria-label="Show older medals" ${hasNext ? "" : "disabled"}>
+              &#8250;
+            </button>
+          </span>
+        ` : ""}
+      </span>
+    `;
+
+    root.querySelectorAll(".spx-header-medal-nav").forEach((button) => {
+      button.addEventListener("click", () => {
+        if (button.disabled) {
+          return;
+        }
+
+        state.headerMedalIndex = button.dataset.direction === "previous"
+          ? getPreviousHeaderMedalStart(state.headerMedalIndex, visibleCount)
+          : getNextHeaderMedalStart(state.headerMedalIndex, medals.length, visibleCount);
+
+        renderHeaderMedals();
+      });
+    });
   }
 
   function renderClipsSection(root, bundle) {
@@ -255,6 +345,77 @@
         ${canPlay ? `<div class="spx-play-btn">▶</div>` : ""}
       </div>
     `;
+  }
+
+  function resolveHeaderMedalTarget() {
+    return (
+      document.querySelector(".profile_header_centered_persona > .persona_name") ||
+      document.querySelector(".profile_header_centered_col .profile_header_centered_persona .persona_name")
+    );
+  }
+
+  function prepareHeaderMedalTarget(target) {
+    if (!target) {
+      return;
+    }
+
+    target.classList.add("spx-header-medal-target");
+  }
+
+  function mountHeaderMedalRoot(target, root) {
+    const popup = target.querySelector("#NamePopup");
+    if (popup) {
+      target.insertBefore(root, popup);
+      return;
+    }
+
+    target.appendChild(root);
+  }
+
+  function getGcMedals(bundle) {
+    const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
+    const gcProvider = providers.find((provider) => provider.id === "gc");
+    return gcProvider?.state === "ready" && Array.isArray(gcProvider.medals)
+      ? gcProvider.medals
+      : [];
+  }
+
+  function clearHeaderMedals() {
+    const root = document.getElementById(HEADER_MEDALS_ID);
+    if (root) {
+      root.remove();
+    }
+    state.headerMedals = [];
+    state.headerMedalKey = "";
+    state.headerMedalIndex = 0;
+  }
+
+  function getVisibleHeaderMedalCount() {
+    return window.matchMedia("(max-width: 910px)").matches ? 3 : 4;
+  }
+
+  function getVisibleMedals(medals, startIndex, count) {
+    if (!medals.length) {
+      return [];
+    }
+
+    return medals.slice(startIndex, startIndex + Math.min(count, medals.length));
+  }
+
+  function normalizeHeaderMedalStart(index, total) {
+    if (!total) {
+      return 0;
+    }
+
+    return Math.max(0, Math.min(index, total - 1));
+  }
+
+  function getPreviousHeaderMedalStart(index, count) {
+    return Math.max(0, index - count);
+  }
+
+  function getNextHeaderMedalStart(index, total, count) {
+    return Math.min(Math.max(total - 1, 0), index + count);
   }
 
   function renderLoadingRow() {

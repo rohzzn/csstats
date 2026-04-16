@@ -241,6 +241,15 @@ function parseProfile(profile) {
   const wingman = rankings.find((rank) => rank.rank_type_id === 7) ?? null;
   const competitive = rankings.filter((rank) => rank.rank_type_id === 6);
   const commendation = profile.commendation ?? null;
+  const featuredMedalId = Number(profile.medals?.featured_display_item_defidx) || null;
+  const rawMedalIds = Array.isArray(profile.medals?.display_items_defidx)
+    ? profile.medals.display_items_defidx
+        .map((id) => Number(id))
+        .filter((id) => Number.isInteger(id) && id > 0)
+    : [];
+  const medalIds = rawMedalIds.length
+    ? rawMedalIds
+    : featuredMedalId ? [featuredMedalId] : [];
 
   return {
     premier_rating: premier?.rank_id ?? null,
@@ -249,7 +258,9 @@ function parseProfile(profile) {
     wingman_wins: wingman?.wins ?? null,
     competitive_ranks: competitive.map((rank) => ({ rank_id: rank.rank_id, wins: rank.wins })),
     player_level: profile.player_level ?? null,
-    medal_count: profile.medals?.display_items_defidx?.length ?? 0,
+    medal_count: medalIds.length,
+    medal_ids: medalIds,
+    featured_medal_id: featuredMedalId,
     commend_friendly: commendation?.cmd_friendly ?? null,
     commend_teaching: commendation?.cmd_teaching ?? null,
     commend_leader: commendation?.cmd_leader ?? null
@@ -317,7 +328,8 @@ app.get("/profile/:steamId", async (req, res) => {
     const hasData = parsed && (
       parsed.commend_friendly !== null ||
       parsed.player_level !== null ||
-      parsed.premier_rating !== null
+      parsed.premier_rating !== null ||
+      (Array.isArray(parsed.medal_ids) && parsed.medal_ids.length > 0)
     );
 
     const result = hasData

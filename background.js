@@ -1,3 +1,9 @@
+try {
+  importScripts("collectibles-map.js");
+} catch (_error) {
+  self.SPX_COLLECTIBLE_ASSETS = self.SPX_COLLECTIBLE_ASSETS || {};
+}
+
 const SETTINGS = Object.freeze({
   steamApiKey: "2855FF7B8929866B9CD7AD3265D1C0C2",
   leetifyApiKey: "6d7de76a-726a-460d-a41b-34d581bf2013",
@@ -293,6 +299,7 @@ async function fetchGcData(steamId, settings) {
     const teaching = asNumber(data.commend_teaching);
     const leader   = asNumber(data.commend_leader);
     const playerLevel = asNumber(data.player_level);
+    const medals = resolveCollectibleMedals(data);
 
     // Premier — currently always null (Valve restricted), wired up for when it returns
     const premier     = asNumber(data.premier_rating);
@@ -343,7 +350,7 @@ async function fetchGcData(steamId, settings) {
         }
       : null;
 
-    if (!commendations.length && !metrics.length && !wingmanRanks.length && !competitiveRanks.length && !levelMetric) {
+    if (!commendations.length && !metrics.length && !wingmanRanks.length && !competitiveRanks.length && !levelMetric && !medals.length) {
       return makeProviderResult("gc", "not_found", {});
     }
 
@@ -351,6 +358,7 @@ async function fetchGcData(steamId, settings) {
       title: "CS2",
       url: steamProfileUrl,
       commendations,
+      medals,
       metrics,
       levelMetric,
       competitiveRanks,
@@ -361,6 +369,425 @@ async function fetchGcData(steamId, settings) {
     return makeProviderResult("gc", "disabled", {});
   }
 }
+
+function resolveCollectibleMedals(data) {
+  const ids = Array.isArray(data?.medal_ids)
+    ? data.medal_ids.map((id) => asNumber(id)).filter((id) => id !== null)
+    : [];
+
+  if (!ids.length) {
+    return [];
+  }
+
+  const seen = new Set();
+  return ids
+    .filter((id) => {
+      const key = String(id);
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    })
+    .map(resolveCollectibleMedal)
+    .filter(Boolean)
+    .sort(compareCollectibleMedals);
+}
+
+function resolveCollectibleMedal(id) {
+  const key = String(id || "").trim();
+  const asset = self.SPX_COLLECTIBLE_ASSETS?.[key];
+  if (!asset?.file) {
+    return null;
+  }
+
+  return {
+    id: key,
+    title: asset.title || `Collectible ${key}`,
+    image: chrome.runtime.getURL(`collectibles-images/${asset.file}`)
+  };
+}
+
+function compareCollectibleMedals(left, right) {
+  const leftMeta = getCollectibleSortMeta(left);
+  const rightMeta = getCollectibleSortMeta(right);
+
+  if (leftMeta.groupPriority !== rightMeta.groupPriority) {
+    return leftMeta.groupPriority - rightMeta.groupPriority;
+  }
+
+  if (leftMeta.releaseStamp !== rightMeta.releaseStamp) {
+    return rightMeta.releaseStamp - leftMeta.releaseStamp;
+  }
+
+  if (leftMeta.typePriority !== rightMeta.typePriority) {
+    return leftMeta.typePriority - rightMeta.typePriority;
+  }
+
+  if (leftMeta.variantPriority !== rightMeta.variantPriority) {
+    return leftMeta.variantPriority - rightMeta.variantPriority;
+  }
+
+  if (leftMeta.family !== rightMeta.family) {
+    return leftMeta.family.localeCompare(rightMeta.family);
+  }
+
+  return asNumber(right?.id) - asNumber(left?.id);
+}
+
+function getCollectibleSortMeta(medal) {
+  const title = String(medal?.title || "").trim();
+  const id = asNumber(medal?.id) || 0;
+
+  const proTrophyPriority = inferProTrophyPriority(title);
+  const tournamentReleaseStamp = inferTournamentReleaseStamp(title);
+  if (proTrophyPriority !== null && tournamentReleaseStamp) {
+    return {
+      groupPriority: 0,
+      releaseStamp: tournamentReleaseStamp,
+      typePriority: proTrophyPriority,
+      variantPriority: 0,
+      family: title
+    };
+  }
+
+  const serviceReleaseStamp = inferServiceMedalReleaseStamp(title);
+  if (serviceReleaseStamp) {
+    return {
+      groupPriority: 1,
+      releaseStamp: serviceReleaseStamp,
+      typePriority: 0,
+      variantPriority: 0,
+      family: title
+    };
+  }
+
+  const premierReleaseStamp = inferPremierSeasonReleaseStamp(title);
+  if (premierReleaseStamp) {
+    return {
+      groupPriority: 1,
+      releaseStamp: premierReleaseStamp,
+      typePriority: 1,
+      variantPriority: 0,
+      family: "premier"
+    };
+  }
+
+  const specialReleaseStamp = inferSpecialCollectibleReleaseStamp(title);
+  if (specialReleaseStamp) {
+    return {
+      groupPriority: 1,
+      releaseStamp: specialReleaseStamp,
+      typePriority: 2,
+      variantPriority: 0,
+      family: title
+    };
+  }
+
+  const operationReleaseStamp = inferOperationReleaseStamp(title);
+  if (operationReleaseStamp) {
+    return {
+      groupPriority: 1,
+      releaseStamp: operationReleaseStamp,
+      typePriority: inferOperationTierPriority(title),
+      variantPriority: 0,
+      family: inferOperationFamily(title)
+    };
+  }
+
+  const pinMeta = inferPinReleaseMeta(title);
+  if (pinMeta) {
+    return {
+      groupPriority: 1,
+      releaseStamp: pinMeta.releaseStamp,
+      typePriority: 4,
+      variantPriority: pinMeta.variantPriority,
+      family: pinMeta.family
+    };
+  }
+
+  if (tournamentReleaseStamp) {
+    return {
+      groupPriority: 1,
+      releaseStamp: tournamentReleaseStamp,
+      typePriority: inferTournamentItemPriority(title),
+      variantPriority: 0,
+      family: inferTournamentFamily(title)
+    };
+  }
+
+  return {
+    groupPriority: 1,
+    releaseStamp: inferFallbackReleaseStamp(title, id),
+    typePriority: inferGenericTierPriority(title),
+    variantPriority: 0,
+    family: title
+  };
+}
+
+function inferProTrophyPriority(title) {
+  if (/^Champion at /i.test(title)) {
+    return 0;
+  }
+  if (/^Finalist at /i.test(title)) {
+    return 1;
+  }
+  if (/^Semifinalist at /i.test(title)) {
+    return 2;
+  }
+  if (/^Quarterfinalist at /i.test(title)) {
+    return 3;
+  }
+
+  return null;
+}
+
+function inferServiceMedalReleaseStamp(title) {
+  const match = title.match(/^(\d{4}) Service Medal$/i);
+  if (!match) {
+    return 0;
+  }
+
+  const year = Number(match[1]);
+  if (!Number.isInteger(year)) {
+    return 0;
+  }
+
+  return year === 2015 ? 20150610 : (year * 10000) + 101;
+}
+
+function inferPremierSeasonReleaseStamp(title) {
+  for (const [pattern, releaseStamp] of COLLECTIBLE_PREMIER_SEASON_RELEASES) {
+    if (pattern.test(title)) {
+      return releaseStamp;
+    }
+  }
+
+  return 0;
+}
+
+function inferSpecialCollectibleReleaseStamp(title) {
+  for (const [pattern, releaseStamp] of COLLECTIBLE_SPECIAL_RELEASES) {
+    if (pattern.test(title)) {
+      return releaseStamp;
+    }
+  }
+
+  return 0;
+}
+
+function inferOperationReleaseStamp(title) {
+  for (const [pattern, releaseStamp] of COLLECTIBLE_OPERATION_RELEASES) {
+    if (pattern.test(title)) {
+      return releaseStamp;
+    }
+  }
+
+  return 0;
+}
+
+function inferOperationFamily(title) {
+  for (const [pattern] of COLLECTIBLE_OPERATION_RELEASES) {
+    if (pattern.test(title)) {
+      return pattern.source;
+    }
+  }
+
+  return title;
+}
+
+function inferOperationTierPriority(title) {
+  if (/Diamond/i.test(title)) {
+    return 0;
+  }
+  if (/Gold/i.test(title)) {
+    return 1;
+  }
+  if (/Silver/i.test(title)) {
+    return 2;
+  }
+  if (/Bronze|Challenge Coin|Mission Coin/i.test(title)) {
+    return 3;
+  }
+  if (/Access Pass|All Access Pass|Premium Pass|Pass/i.test(title)) {
+    return 4;
+  }
+
+  return 5;
+}
+
+function inferPinReleaseMeta(title) {
+  const isGenuine = /^Genuine /i.test(title);
+  const normalizedTitle = title.replace(/^Genuine\s+/i, "");
+
+  for (const pinFamily of COLLECTIBLE_PIN_RELEASES) {
+    if (pinFamily.pattern.test(normalizedTitle)) {
+      return {
+        family: pinFamily.family,
+        releaseStamp: isGenuine && pinFamily.genuineReleaseStamp ? pinFamily.genuineReleaseStamp : pinFamily.releaseStamp,
+        variantPriority: isGenuine ? 0 : 1
+      };
+    }
+  }
+
+  return null;
+}
+
+function inferTournamentReleaseStamp(title) {
+  for (const [pattern, releaseStamp] of COLLECTIBLE_TOURNAMENT_RELEASES) {
+    if (pattern.test(title)) {
+      return releaseStamp;
+    }
+  }
+
+  return 0;
+}
+
+function inferTournamentFamily(title) {
+  for (const [pattern] of COLLECTIBLE_TOURNAMENT_RELEASES) {
+    if (pattern.test(title)) {
+      return pattern.source;
+    }
+  }
+
+  return title;
+}
+
+function inferTournamentItemPriority(title) {
+  if (/Diamond/i.test(title)) {
+    return 0;
+  }
+  if (/Gold/i.test(title)) {
+    return 1;
+  }
+  if (/Silver/i.test(title)) {
+    return 2;
+  }
+  if (/Bronze/i.test(title)) {
+    return 3;
+  }
+  if (/Coin/i.test(title)) {
+    return 4;
+  }
+  if (/Viewer Pass \+ 3 Souvenir Tokens/i.test(title)) {
+    return 5;
+  }
+  if (/Viewer Pass/i.test(title)) {
+    return 6;
+  }
+  if (/Souvenir Token|Souvenir Package/i.test(title)) {
+    return 7;
+  }
+
+  return 8;
+}
+
+function inferGenericTierPriority(title) {
+  if (/Diamond/i.test(title)) {
+    return 0;
+  }
+  if (/Gold/i.test(title)) {
+    return 1;
+  }
+  if (/Silver/i.test(title)) {
+    return 2;
+  }
+  if (/Bronze/i.test(title)) {
+    return 3;
+  }
+
+  return 9;
+}
+
+function inferFallbackReleaseStamp(title, id) {
+  const explicitYearMatch = title.match(/\b(20\d{2})\b/);
+  if (explicitYearMatch) {
+    return (Number(explicitYearMatch[1]) * 10000) + 101;
+  }
+
+  return 100000 + id;
+}
+
+const COLLECTIBLE_SPECIAL_RELEASES = Object.freeze([
+  [/5 Year Veteran Coin/i, 20130822],
+  [/10 Year Veteran Coin/i, 20181217],
+  [/Loyalty Badge/i, 20181206],
+  [/10 Year Birthday Coin/i, 20220816],
+  [/Global Offensive Badge/i, 20230927]
+]);
+
+const COLLECTIBLE_PREMIER_SEASON_RELEASES = Object.freeze([
+  [/Premier Season One Medal/i, 20250124],
+  [/Premier Season Two Medal/i, 20250715],
+  [/Premier Season Three Medal/i, 20260121]
+]);
+
+const COLLECTIBLE_OPERATION_RELEASES = Object.freeze([
+  [/Operation Riptide|Riptide (?:Challenge Coin|Coin|Premium Pass|Pass)/i, 20210921],
+  [/Operation Broken Fang|Broken Fang (?:Challenge Coin|Coin|Premium Pass|Pass)/i, 20201203],
+  [/Operation Shattered Web|Shattered Web (?:Challenge Coin|Coin|Premium Pass|Pass)/i, 20191118],
+  [/Operation Hydra|Hydra (?:Challenge Coin|Coin|All Access Pass|Pass)/i, 20170523],
+  [/Operation Wildfire|Wildfire (?:Challenge Coin|Coin|Access Pass|Pass)/i, 20160217],
+  [/Operation Bloodhound|Bloodhound (?:Challenge Coin|Coin|Access Pass|Pass)/i, 20150526],
+  [/Operation Vanguard|Vanguard (?:Challenge Coin|Coin|Access Pass|Pass)/i, 20141111],
+  [/Operation Breakout|Breakout (?:Challenge Coin|Coin|All Access Pass|Pass)/i, 20140701],
+  [/Operation Phoenix|Phoenix (?:Challenge Coin|Coin|Pass)/i, 20140220],
+  [/Operation Bravo|Bravo (?:Challenge Coin|Coin|Pass)/i, 20130919],
+  [/Operation Payback|Payback (?:Challenge Coin|Coin|Pass)/i, 20130425]
+]);
+
+const COLLECTIBLE_PIN_RELEASES = Object.freeze([
+  {
+    family: "pin-half-life-alyx",
+    pattern: /Alyx Pin|Civil Protection Pin|Sustenance! Pin|Vortigaunt Pin|Headcrab Glyph Pin|Health Pin|Lambda Pin|Copper Lambda Pin|CMB Pin|Black Mesa Pin|Combine Helmet Pin|City 17 Pin/i,
+    releaseStamp: 20200322,
+    genuineReleaseStamp: 20200322
+  },
+  {
+    family: "pin-series-3",
+    pattern: /Guardian 3 Pin|Canals Pin|Welcome to the Clutch Pin|Death Sentence Pin|Inferno 2 Pin|Wildfire Pin|Easy Peasy Pin|Aces High Pin|Hydra Pin|Howl Pin|Brigadier General Pin/i,
+    releaseStamp: 20180301,
+    genuineReleaseStamp: 20180112
+  },
+  {
+    family: "pin-series-2",
+    pattern: /Phoenix Pin|Guardian 2 Pin|Bravo Pin|Baggage Pin|Overpass Pin|Office Pin|Cobblestone Pin|Cache Pin|Bloodhound Pin|Valeria Phoenix Pin|Chroma Pin/i,
+    releaseStamp: 20160928,
+    genuineReleaseStamp: 20160705
+  },
+  {
+    family: "pin-series-1",
+    pattern: /Dust II Pin|Guardian Elite Pin|Mirage Pin|Inferno Pin|Italy Pin|Victory Pin|Militia Pin|Nuke Pin|Train Pin|Guardian Pin|Tactics Pin/i,
+    releaseStamp: 20160531,
+    genuineReleaseStamp: 20150226
+  }
+]);
+
+const COLLECTIBLE_TOURNAMENT_RELEASES = Object.freeze([
+  [/Budapest 2025/i, 20251112],
+  [/Austin 2025/i, 20250522],
+  [/Shanghai 2024/i, 20241127],
+  [/Copenhagen 2024/i, 20240313],
+  [/Paris 2023/i, 20230504],
+  [/Rio 2022/i, 20221021],
+  [/Antwerp 2022/i, 20220503],
+  [/Stockholm 2021/i, 20211021],
+  [/Berlin 2019/i, 20190814],
+  [/Katowice 2019/i, 20190206],
+  [/London 2018/i, 20180829],
+  [/Boston 2018/i, 20171219],
+  [/Krakow 2017/i, 20170707],
+  [/Atlanta 2017/i, 20170112],
+  [/Cologne 2016/i, 20160624],
+  [/Columbus 2016/i, 20160317],
+  [/Cluj-Napoca 2015/i, 20151020],
+  [/Cologne 2015/i, 20150814],
+  [/Katowice 2015/i, 20150226],
+  [/DreamHack Winter 2014|DreamHack 2014/i, 20141125],
+  [/Cologne 2014/i, 20140804],
+  [/Katowice 2014/i, 20140313],
+  [/DreamHack 2013/i, 20131201]
+]);
 
 async function fetchLeetifyData(steamId, settings) {
   if (!settings.enableLeetify) {
@@ -454,12 +881,14 @@ async function fetchFaceitData(steamId, settings) {
       pickAliasedNumber(lifetime, ["Average Headshots %", "Headshots %", "Average Headshots"]),
       1
     );
+    const statusMetric = resolveFaceitStatusMetric(player);
 
     const metrics = compact([
       makeMetric("ELO", formatInteger(cs2.faceit_elo)),
       makeMetric("Matches", wins),
       makeMetric("K/D", kd),
-      makeMetric("HS%", hsPercent)
+      makeMetric("HS%", hsPercent),
+      statusMetric
     ]);
 
     if (!metrics.length) {
@@ -477,6 +906,30 @@ async function fetchFaceitData(steamId, settings) {
   } catch (_error) {
     return makeProviderResult("faceit", "not_found", {});
   }
+}
+
+function resolveFaceitStatusMetric(player) {
+  const membershipType = String(player?.membership_type || "").trim().toLowerCase();
+  const memberships = Array.isArray(player?.memberships)
+    ? player.memberships
+        .map((membership) => String(membership || "").trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+  const flags = new Set([membershipType, ...memberships].filter(Boolean));
+
+  if (flags.has("premium")) {
+    return makeMetric("Status", "Premium");
+  }
+
+  if (flags.has("plus")) {
+    return makeMetric("Status", "Plus");
+  }
+
+  if (Boolean(player?.verified)) {
+    return makeMetric("Status", "Verified");
+  }
+
+  return null;
 }
 
 
