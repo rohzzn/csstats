@@ -41,7 +41,9 @@
         "commendations/*.svg",
         "levels/*.png",
         "premier/*.png",
-        "collectibles-images/*.png"
+        "collectibles-images/*.png",
+        "maps-icons/*.svg",
+        "maps-icons/community/*.svg"
       ],
       "matches": [
         "https://steamcommunity.com/*"

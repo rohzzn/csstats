@@ -812,6 +812,7 @@ async function fetchLeetifyData(steamId, settings) {
   const kd = resolveLeetifyKd(internalProfile);
   const winRate = resolveLeetifyWinRate(internalProfile);
   const recentForm = resolveLeetifyRecentForm(internalProfile);
+  const recentMatches = resolveLeetifyRecentMatches(internalProfile);
   const peakPremier = resolveLeetifyPeakPremier(internalProfile);
   const premier = resolveLeetifyPremier(internalProfile);
   const competitiveRanks = resolveLeetifyCompetitiveRanks(internalProfile);
@@ -833,6 +834,7 @@ async function fetchLeetifyData(steamId, settings) {
     message: "",
     url: profileUrl,
     competitiveRanks,
+    matches: recentMatches,
     metrics,
     details: []
   });
@@ -1285,6 +1287,40 @@ function resolveLeetifyRecentForm(internalProfile) {
     .slice(0, 5);
 }
 
+function resolveLeetifyRecentMatches(internalProfile) {
+  return getSortedLeetifyGames(internalProfile)
+    .filter((game) => String(game?.mapName || "").trim())
+    .map((game) => {
+      const result = normalizeLeetifyMatchResult(game?.matchResult);
+      if (!result) {
+        return null;
+      }
+
+      const mapKey = normalizeLeetifyMapKey(game?.mapName);
+      const kills = asNumber(game?.kills);
+      const deaths = asNumber(game?.deaths);
+      const scores = Array.isArray(game?.scores) ? game.scores.map((score) => asNumber(score)) : [];
+      const partySize = Math.round(asNumber(game?.partySize) || 0);
+
+      return {
+        mapKey,
+        mapName: formatMatchMapName(game?.mapName),
+        mapIcon: resolveLeetifyMapIcon(game?.mapName),
+        result,
+        mode: resolveLeetifyMatchMode(game),
+        score: scores.length >= 2 && scores[0] !== null && scores[1] !== null
+          ? `${Math.round(scores[0])}-${Math.round(scores[1])}`
+          : "",
+        kills: kills === null ? "" : String(Math.round(kills)),
+        deaths: deaths === null ? "" : String(Math.round(deaths)),
+        party: partySize > 1 ? `Party ${partySize}` : "Solo",
+        finishedAt: String(game?.gameFinishedAt || "")
+      };
+    })
+    .filter(Boolean)
+    .slice(0, 10);
+}
+
 function normalizeLeetifyMatchResult(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) {
@@ -1372,6 +1408,56 @@ function getSortedLeetifyGames(internalProfile) {
     .sort((left, right) => String(right?.gameFinishedAt || "").localeCompare(String(left?.gameFinishedAt || "")));
 }
 
+function resolveLeetifyMatchMode(game) {
+  const rankType = asNumber(game?.rankType);
+  const dataSource = String(game?.dataSource || "").trim().toLowerCase();
+
+  if (rankType === 11) {
+    return "Premier";
+  }
+
+  if (rankType === 12 || dataSource.includes("matchmaking_competitive")) {
+    return "Competitive";
+  }
+
+  if (dataSource.includes("faceit")) {
+    return "FACEIT";
+  }
+
+  if (dataSource.includes("wingman")) {
+    return "Wingman";
+  }
+
+  return "Match";
+}
+
+function normalizeLeetifyMapKey(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function resolveLeetifyMapIcon(value) {
+  const key = normalizeLeetifyMapKey(value);
+  if (!key) {
+    return "";
+  }
+
+  const isCommunityMap = LEETIFY_COMMUNITY_MAP_ICON_KEYS.has(key);
+  const isCoreMap = LEETIFY_CORE_MAP_ICON_KEYS.has(key);
+  if (!isCommunityMap && !isCoreMap) {
+    return "";
+  }
+
+  const basePath = isCommunityMap
+    ? `maps-icons/community/${key}.svg`
+    : `maps-icons/${key}.svg`;
+
+  return chrome.runtime.getURL(basePath);
+}
+
+function formatMatchMapName(value) {
+  return formatCompetitiveMapName(value).replace(/(\d+)/g, " $1").replace(/\s+/g, " ").trim();
+}
+
 function isLeetifyCompetitiveGame(game) {
   const rankType = asNumber(game?.rankType);
   const dataSource = String(game?.dataSource || "").trim().toLowerCase();
@@ -1436,6 +1522,40 @@ const CSGO_RANK_ASSET_MAP = Object.freeze({
   17: "17.svg",
   18: "18.svg"
 });
+
+const LEETIFY_CORE_MAP_ICON_KEYS = new Set([
+  "ar_baggage",
+  "ar_shoots",
+  "cs_italy",
+  "cs_office",
+  "de_ancient",
+  "de_anubis",
+  "de_dust",
+  "de_dust2",
+  "de_inferno",
+  "de_mirage",
+  "de_nuke",
+  "de_overpass",
+  "de_train",
+  "de_vertigo"
+]);
+
+const LEETIFY_COMMUNITY_MAP_ICON_KEYS = new Set([
+  "ar_pool_day",
+  "cs_agency",
+  "de_assembly",
+  "de_basalt",
+  "de_brewery",
+  "de_dogtown",
+  "de_edin",
+  "de_grail",
+  "de_jura",
+  "de_memento",
+  "de_mills",
+  "de_palais",
+  "de_thera",
+  "de_whistle"
+]);
 
 function makeMetric(label, value, meta = "", options = {}) {
   if (value === null || value === undefined || value === "") {

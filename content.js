@@ -1,5 +1,6 @@
 (function () {
   const ROOT_ID  = "spx-cs2-profile-intel";
+  const MATCHES_ID = "spx-cs2-matches-intel";
   const CLIPS_ID = "spx-cs2-clips-intel";
   const HEADER_MEDALS_ID = "spx-cs2-header-medals";
   const DISPLAY_ORDER = ["steam", "leetify", "csstats"];
@@ -17,6 +18,7 @@
     steamId: null,
     profileUrl: null,
     root: null,
+    matchesRoot: null,
     clipsRoot: null,
     headerMedals: [],
     headerMedalIndex: 0,
@@ -116,13 +118,17 @@
       context.target.prepend(root);
     }
 
-    // Clips section goes directly after the stats section
+    const matchesRoot = ensureRoot(MATCHES_ID);
+    state.matchesRoot = matchesRoot;
+    root.insertAdjacentElement("afterend", matchesRoot);
+
+    // Clips section goes directly after the matches section
     const clipsRoot = ensureRoot(CLIPS_ID);
     state.clipsRoot = clipsRoot;
-    if (!context.target.contains(clipsRoot)) {
-      root.insertAdjacentElement("afterend", clipsRoot);
-    }
+    matchesRoot.insertAdjacentElement("afterend", clipsRoot);
 
+    matchesRoot.innerHTML = "";
+    clipsRoot.innerHTML = "";
     renderLoading(root);
   }
 
@@ -150,6 +156,7 @@
       }
 
       renderBundle(state.root, response);
+      renderMatchesSection(state.matchesRoot, response);
       renderClipsSection(state.clipsRoot, response);
       renderHeaderMedals(response);
     } catch (error) {
@@ -174,6 +181,12 @@
 
   function renderFatal(root, message) {
     clearHeaderMedals();
+    if (state.matchesRoot) {
+      state.matchesRoot.innerHTML = "";
+    }
+    if (state.clipsRoot) {
+      state.clipsRoot.innerHTML = "";
+    }
     root.innerHTML = `
       <div class="profile_customization_header spx-showcase-header">Stats</div>
       <div class="profile_customization_block">
@@ -342,6 +355,30 @@
     });
   }
 
+  function renderMatchesSection(root, bundle) {
+    if (!root) return;
+
+    const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
+    const leetify = providers.find((provider) => provider.id === "leetify");
+    const matches = (leetify?.state === "ready" && Array.isArray(leetify.matches)) ? leetify.matches : [];
+
+    if (!matches.length) {
+      root.innerHTML = "";
+      return;
+    }
+
+    root.innerHTML = `
+      <div class="profile_customization_header spx-showcase-header">Matches</div>
+      <div class="profile_customization_block">
+        <div class="showcase_content_bg spx-shell">
+          <div class="spx-matches-grid">
+            ${matches.map(renderMatchCard).join("")}
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderClipThumb(clip) {
     const views   = clip.views === 1 ? "1 view" : `${Number(clip.views).toLocaleString()} views`;
     const canPlay = !!clip.video;
@@ -360,6 +397,36 @@
         ${canPlay ? `<div class="spx-play-btn">▶</div>` : ""}
       </div>
     `;
+  }
+
+  function renderMatchCard(match) {
+    const resultClass = match.result === "W"
+      ? "spx-match-result-win"
+      : match.result === "L"
+        ? "spx-match-result-loss"
+        : "spx-match-result-draw";
+    const mapVisual = match.mapIcon
+      ? `<img class="spx-match-map-icon" src="${escapeAttribute(match.mapIcon)}" alt="${escapeAttribute(match.mapName)}" loading="lazy" />`
+      : `<div class="spx-match-map-fallback">${escapeHtml(getMatchMapFallback(match.mapName))}</div>`;
+    const kdValue = (match.kills || match.deaths) ? `${match.kills || "0"}-${match.deaths || "0"}` : "";
+
+    return `
+      <article class="spx-match-card ${resultClass}" title="${escapeAttribute(match.mapName || "Map")}">
+        <div class="spx-match-map-stack">
+          ${mapVisual}
+        </div>
+        <div class="spx-match-mode">${escapeHtml(match.mode || "Match")}</div>
+        ${match.score ? `<div class="spx-match-stat"><span class="spx-match-stat-label">Score</span><span class="spx-match-stat-value">${escapeHtml(match.score)}</span></div>` : ""}
+        ${kdValue ? `<div class="spx-match-stat"><span class="spx-match-stat-label">K-D</span><span class="spx-match-stat-value">${escapeHtml(kdValue)}</span></div>` : ""}
+      </article>
+    `;
+  }
+
+  function getMatchMapFallback(value) {
+    return String(value || "Map")
+      .replace(/[^A-Za-z0-9]/g, "")
+      .slice(0, 2)
+      .toUpperCase() || "MP";
   }
 
   function resolveHeaderMedalTarget() {
