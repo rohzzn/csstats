@@ -6,7 +6,6 @@ try {
 
 const SETTINGS = Object.freeze({
   steamApiKey: "2855FF7B8929866B9CD7AD3265D1C0C2",
-  leetifyApiKey: "6d7de76a-726a-460d-a41b-34d581bf2013",
   faceitApiKey: "b0ce56e8-e9a2-45e7-82ee-7310a0549d0f",
   enableLeetify: true,
   enableFaceit: true,
@@ -795,54 +794,45 @@ async function fetchLeetifyData(steamId, settings) {
   }
 
   const profileUrl = `https://leetify.com/app/profile/${steamId}`;
-  const apiUrl = `https://api-public.cs-prod.leetify.com/v3/profile?steam64_id=${encodeURIComponent(steamId)}`;
-
-  let profile = null;
+  const internalApiUrl = `https://api.cs-prod.leetify.com/api/profile/id/${encodeURIComponent(steamId)}`;
+  let internalProfile = null;
 
   try {
-    const headers = { Accept: "application/json" };
-    if (settings.leetifyApiKey) {
-      headers.Authorization = `Bearer ${settings.leetifyApiKey}`;
-    }
-    profile = await fetchJson(apiUrl, { headers });
-  } catch (firstError) {
-    if (firstError.status === 401 && settings.leetifyApiKey) {
-      try {
-        profile = await fetchJson(apiUrl, { headers: { Accept: "application/json" } });
-      } catch (_) {
-        // Both attempts failed — profile stays null.
-      }
-    }
+    internalProfile = await fetchJson(internalApiUrl, { headers: { Accept: "application/json" } }, 10000);
+  } catch (error) {
+    return isLeetifyMissingProfileError(error)
+      ? makeProviderResult("leetify", "not_found", { url: profileUrl })
+      : makeProviderResult("leetify", "error", {
+          url: profileUrl,
+          message: "Leetify is unavailable right now."
+        });
   }
 
-  if (!profile) {
-    return makeProviderResult("leetify", "not_found", { url: profileUrl });
-  }
+  const aim = asNumber(internalProfile?.recentGameRatings?.aim);
+  const kd = resolveLeetifyKd(internalProfile);
+  const winRate = resolveLeetifyWinRate(internalProfile);
+  const recentForm = resolveLeetifyRecentForm(internalProfile);
+  const peakPremier = resolveLeetifyPeakPremier(internalProfile);
+  const premier = resolveLeetifyPremier(internalProfile);
+  const competitiveRanks = resolveLeetifyCompetitiveRanks(internalProfile);
 
-  const aim = asNumber(profile?.rating?.aim);
-  const positioning = asNumber(profile?.rating?.positioning);
-  const utility = asNumber(profile?.rating?.utility);
-  const reaction = asNumber(profile?.stats?.reaction_time_ms);
-  const peakPremier = resolveLeetifyPeakPremier(profile);
-  const premier = asNumber(profile?.ranks?.premier);
-  const competitiveRanks = resolveLeetifyCompetitiveRanks(profile?.ranks?.competitive);
-  const wingmanRanks = resolveLeetifyWingmanRanks(profile?.ranks?.wingman_competitive ?? profile?.ranks?.wingman);
+  const premierTooltip = peakPremier !== null
+    ? `Peak Premier: ${formatInteger(peakPremier)}`
+    : "";
 
   const metrics = compact([
-    makeMetric("Peak Premier", formatInteger(peakPremier)),
-    makeMetric("Premier", formatInteger(premier)),
+    makeMetric("Premier", formatInteger(premier), "", { tooltip: premierTooltip }),
     makeMetric("Aim", formatDecimal(aim, 1)),
-    makeMetric("Positioning", formatDecimal(positioning, 1)),
-    makeMetric("Utility", formatDecimal(utility, 1)),
-    makeMetric("Reaction", formatMilliseconds(reaction))
+    makeMetric("K/D", formatDecimal(kd, 2)),
+    makeMetric("Win Rate", formatPercent(winRate, 1)),
+    makeMetric("Last 5", recentForm.join(" "), "", { kind: "recentform", tokens: recentForm })
   ]);
 
   return makeProviderResult("leetify", "ready", {
-    title: profile.name || "Leetify",
+    title: internalProfile?.meta?.name || "Leetify",
     message: "",
     url: profileUrl,
     competitiveRanks,
-    wingmanRanks,
     metrics,
     details: []
   });
@@ -1198,23 +1188,11 @@ function resolveFaceitRankLabel(gameData) {
   return level === null ? "FACEIT" : `Level ${Math.round(level)}`;
 }
 
-function resolveLeetifyCompetitiveRanks(ranks) {
-  return resolveRankEntries(ranks, "csranks");
-}
-
-function resolveLeetifyWingmanRanks(ranks) {
-  if (typeof ranks === "number") {
-    const rank = Math.max(0, Math.min(18, Math.round(ranks)));
-    if (rank === 0 || !CSGO_RANK_ASSET_MAP[rank]) { return []; }
-    return [{
-      mapName: "Wingman",
-      rank,
-      rankLabel: competitiveRankLabel(rank),
-      image: chrome.runtime.getURL(`wingman/${CSGO_RANK_ASSET_MAP[rank]}`)
-    }];
-  }
-
-  return resolveRankEntries(ranks, "wingman");
+function resolveLeetifyCompetitiveRanks(internalProfile) {
+  return resolveRankEntries(
+    getLeetifyLatestRankEntries(internalProfile, isLeetifyCompetitiveGame),
+    "csranks"
+  );
 }
 
 function resolveRankEntries(ranks, folder) {
@@ -1245,28 +1223,159 @@ function resolveRankEntries(ranks, folder) {
     .slice(0, 6);
 }
 
-function resolveLeetifyPeakPremier(profile) {
-  const currentPremier = asNumber(profile?.ranks?.premier);
-  const recentMatches = Array.isArray(profile?.recent_matches) ? profile.recent_matches : [];
+function isLeetifyMissingProfileError(error) {
+  return error?.status === 404 || error?.status === 422;
+}
 
-  const recentPeak = recentMatches
-    .map((match) => {
-      const rankType = asNumber(match?.rank_type);
-      const rank = asNumber(match?.rank);
-      return rankType === 11 && rank !== null && rank > 0 ? rank : null;
-    })
-    .filter((rank) => rank !== null)
-    .reduce((peak, rank) => Math.max(peak, rank), 0);
+function resolveLeetifyPeakPremier(internalProfile) {
+  const currentPremier = resolveLeetifyPremier(internalProfile);
+  const internalPeak = resolveLeetifyInternalPeakPremier(internalProfile);
+  const candidates = [currentPremier, internalPeak].filter((value) => value !== null && value > 0);
+  return candidates.length ? Math.max(...candidates) : null;
+}
 
-  if (recentPeak > 0 && currentPremier !== null) {
-    return Math.max(currentPremier, recentPeak);
+function resolveLeetifyPremier(internalProfile) {
+  const recentPremierGame = getLeetifyPremierGames(internalProfile)
+    .find((game) => {
+      const skillLevel = asNumber(game?.skillLevel);
+      return skillLevel !== null && skillLevel > 0;
+    });
+  return asNumber(recentPremierGame?.skillLevel);
+}
+
+function resolveLeetifyKd(internalProfile) {
+  const recentGames = getLeetifyRecentGames(internalProfile)
+    .map((game) => ({
+      kills: asNumber(game?.kills),
+      deaths: asNumber(game?.deaths)
+    }))
+    .filter((game) => game.kills !== null && game.deaths !== null);
+
+  if (!recentGames.length) {
+    return null;
   }
 
-  if (recentPeak > 0) {
-    return recentPeak;
+  const kills = recentGames.reduce((sum, game) => sum + game.kills, 0);
+  const deaths = recentGames.reduce((sum, game) => sum + game.deaths, 0);
+
+  if (deaths <= 0) {
+    return null;
   }
 
-  return currentPremier;
+  return kills / deaths;
+}
+
+function resolveLeetifyWinRate(internalProfile) {
+  const recentGames = getLeetifyRecentGames(internalProfile)
+    .map((game) => String(game?.matchResult || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  if (!recentGames.length) {
+    return null;
+  }
+
+  const wins = recentGames.filter((result) => result === "win").length;
+  return (wins / recentGames.length) * 100;
+}
+
+function resolveLeetifyRecentForm(internalProfile) {
+  return getLeetifyRecentGames(internalProfile)
+    .map((game) => normalizeLeetifyMatchResult(game?.matchResult))
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
+function normalizeLeetifyMatchResult(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized === "win" || normalized.includes("win")) {
+    return "W";
+  }
+
+  if (
+    normalized === "loss" ||
+    normalized === "lose" ||
+    normalized.includes("loss") ||
+    normalized.includes("lose")
+  ) {
+    return "L";
+  }
+
+  if (
+    normalized === "draw" ||
+    normalized === "tie" ||
+    normalized.includes("draw") ||
+    normalized.includes("tie")
+  ) {
+    return "D";
+  }
+
+  return null;
+}
+
+function resolveLeetifyInternalPeakPremier(internalProfile) {
+  const premierGames = getLeetifyPremierGames(internalProfile)
+    .map((game) => asNumber(game?.skillLevel))
+    .filter((value) => value !== null && value > 0);
+
+  return premierGames.length ? Math.max(...premierGames) : null;
+}
+
+function getLeetifyPremierGames(internalProfile) {
+  return getSortedLeetifyGames(internalProfile)
+    .filter((game) => asNumber(game?.rankType) === 11)
+    .filter((game) => asNumber(game?.skillLevel) !== null);
+}
+
+function getLeetifyRecentGames(internalProfile) {
+  const sampleSize = Math.max(
+    1,
+    Math.round(asNumber(internalProfile?.recentGameRatings?.gamesPlayed) || 30)
+  );
+
+  return getSortedLeetifyGames(internalProfile).slice(0, sampleSize);
+}
+
+function getLeetifyLatestRankEntries(internalProfile, predicate) {
+  const latestByMap = new Map();
+
+  for (const game of getSortedLeetifyGames(internalProfile)) {
+    if (!predicate(game)) {
+      continue;
+    }
+
+    const rank = asNumber(game?.skillLevel);
+    if (rank === null || rank <= 0 || rank > 18) {
+      continue;
+    }
+
+    const mapName = String(game?.mapName || "").trim();
+    if (!mapName || latestByMap.has(mapName)) {
+      continue;
+    }
+
+    latestByMap.set(mapName, {
+      map_name: mapName,
+      rank
+    });
+  }
+
+  return Array.from(latestByMap.values());
+}
+
+function getSortedLeetifyGames(internalProfile) {
+  return (Array.isArray(internalProfile?.games) ? internalProfile.games.slice() : [])
+    .filter((game) => game?.isCs2 !== false)
+    .sort((left, right) => String(right?.gameFinishedAt || "").localeCompare(String(left?.gameFinishedAt || "")));
+}
+
+function isLeetifyCompetitiveGame(game) {
+  const rankType = asNumber(game?.rankType);
+  const dataSource = String(game?.dataSource || "").trim().toLowerCase();
+  return rankType === 12 || dataSource.includes("matchmaking_competitive");
 }
 
 function formatCompetitiveMapName(value) {
@@ -1328,7 +1437,7 @@ const CSGO_RANK_ASSET_MAP = Object.freeze({
   18: "18.svg"
 });
 
-function makeMetric(label, value, meta = "") {
+function makeMetric(label, value, meta = "", options = {}) {
   if (value === null || value === undefined || value === "") {
     return null;
   }
@@ -1336,7 +1445,10 @@ function makeMetric(label, value, meta = "") {
   return {
     label,
     value: String(value),
-    meta: meta ? String(meta) : ""
+    meta: meta ? String(meta) : "",
+    tooltip: options?.tooltip ? String(options.tooltip) : "",
+    kind: options?.kind ? String(options.kind) : "",
+    tokens: Array.isArray(options?.tokens) ? options.tokens.map((token) => String(token)) : []
   };
 }
 
@@ -1354,7 +1466,6 @@ function makeDetail(label, value) {
 function compact(values) {
   return values.filter(Boolean);
 }
-
 
 function pickAliasedNumber(record, aliases) {
   const value = pickAliasedValue(record, aliases);

@@ -7,7 +7,7 @@
   "permissions": [],
   "host_permissions": [
     "https://steamcommunity.com/*",
-    "https://api-public.cs-prod.leetify.com/*",
+    "https://api.cs-prod.leetify.com/*",
     "https://open.faceit.com/*",
     "https://csstats.gg/*",
     "https://api.steampowered.com/*",
@@ -40,6 +40,7 @@
         "wingman/*.svg",
         "commendations/*.svg",
         "levels/*.png",
+        "premier/*.png",
         "collectibles-images/*.png"
       ],
       "matches": [

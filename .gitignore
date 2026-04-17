@@ -12,6 +12,19 @@ server/test_rohzzn.js
 server/diag.js
 server/diag2.js
 
+# Local browser/debug artifacts
+.tmp-chrome-cdp/
+.tmp-netlog-profile/
+leetify-chrome-output.txt
+leetify-dom.html
+leetify-main.js
+leetify-netlog.json
+leetify-profile.html
+urlscan-csst.json
+
+# Local package/output artifacts
+/*.zip
+
 # OS
 .DS_Store
 Thumbs.db

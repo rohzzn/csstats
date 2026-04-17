@@ -10,15 +10,14 @@ Every Steam profile gets an inline **Stats** panel with data from multiple sourc
 |---|---|---|
 | **Steam** | Steam Web API | Wins · K/D · HS% · Hours · Account age · Friend code · VAC/Game ban |
 | **CS2** ⭐ | Game Coordinator (local server) | Premier CS Rating · Premier wins · Competitive ranks · Wingman rank — **works on every profile** |
-| **FACEIT** | FACEIT API | Rank icon · ELO · Matches · K/D · HS% |
-| **Leetify** | Leetify API | Premier (coloured by tier) · Peak Premier · Aim · Positioning · Utility · Reaction time · Competitive & wingman rank images |
+| **Leetify** | Leetify profile feed | Premier (coloured by tier, peak on hover) · FACEIT ELO · Aim · K/D · Win Rate · Competitive rank images |
 | **CSStats** | csstats.gg | Premier (coloured by tier) · Peak Premier · Wins |
 
 - **Steam row always appears** — account info (age, friend code) and CS2 stats (wins, K/D, HS%) are shown whenever available from the Steam API. No sign-up required.
 - **CS2 row (Game Coordinator)** shows real-time Premier CS Rating for literally any Steam account, even private profiles, by querying Valve's game servers directly. Requires the local server (see below).
 - VAC bans and game bans are highlighted in red/orange on the Steam row.
 - Premier CS Rating is colour-coded to match the in-game tier (grey → light blue → blue → purple → pink → red → gold).
-- Competitive and wingman rank images are shown per map.
+- Competitive rank images are shown per map.
 
 ## Install
 
@@ -116,8 +115,8 @@ pm2 save && pm2 startup
 
 - **Steam Web API** — account age, friend code, wins, K/D, HS%, hours, ban info (API key required, bundled). Works on every public Steam profile.
 - **CS2 Game Coordinator** — Premier CS Rating, rank, wins queried directly from Valve's servers. Works on every Steam account. Requires the GC proxy server above.
-- **FACEIT** — rank, ELO, match count, K/D, HS% (API key required, bundled). Only appears when the player has a FACEIT account.
-- **Leetify** — CS Rating, skill ratings, ranks (public API, works for registered Leetify users)
+- **FACEIT** — ELO and level icon (API key required, bundled). Merged into the Leetify row when the player has a FACEIT account.
+- **Leetify** — CS Rating, skill ratings, and ranks from Leetify's live profile data
 - **CSStats** — CS Rating, wins (public page fetch, no key needed; requires login on csstats.gg for some profiles)
 
 ## Privacy

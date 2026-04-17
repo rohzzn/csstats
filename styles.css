@@ -132,6 +132,12 @@
   gap: 12px;
 }
 
+#spx-cs2-profile-intel .spx-stat-line-steam > .spx-rank-image {
+  height: 32px;
+  margin-right: 8px;
+  align-self: center;
+}
+
 /* ── FACEIT rank icon ─────────────────────────────── */
 
 #spx-cs2-profile-intel .spx-rank-image {
@@ -161,6 +167,28 @@
   min-width: 0;
 }
 
+#spx-cs2-profile-intel .spx-metric-grid-steam-primary {
+  align-items: center;
+}
+
+#spx-cs2-profile-intel .spx-metric-grid-steam-primary .spx-metric-level {
+  border-right: none;
+  padding-right: 8px;
+  margin-right: 8px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+#spx-cs2-profile-intel .spx-metric-grid-steam-primary .spx-level-badge {
+  height: 100%;
+}
+
+#spx-cs2-profile-intel .spx-metric-grid-steam-primary .spx-level-image {
+  width: 30px;
+  height: 30px;
+}
+
 #spx-cs2-profile-intel .spx-steam-secondary {
   margin-left: auto;
 }
@@ -178,6 +206,98 @@
   margin-right: 0;
 }
 
+#spx-cs2-profile-intel .spx-tooltip-anchor {
+  position: relative;
+}
+
+#spx-cs2-profile-intel .spx-tooltip-anchor::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 10px);
+  transform: translateX(-50%);
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(9, 13, 18, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #dde4ec;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.26);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 20;
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+}
+
+#spx-cs2-profile-intel .spx-tooltip-anchor::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 4px);
+  transform: translateX(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 6px solid rgba(9, 13, 18, 0.96);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 19;
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+}
+
+#spx-cs2-profile-intel .spx-tooltip-anchor:hover::after,
+#spx-cs2-profile-intel .spx-tooltip-anchor:hover::before {
+  opacity: 1;
+  visibility: visible;
+}
+
+#spx-cs2-profile-intel .spx-tooltip-anchor:hover::after {
+  transform: translateX(-50%) translateY(-2px);
+}
+
+#spx-cs2-profile-intel .spx-tooltip-anchor:hover::before {
+  transform: translateX(-50%) translateY(-2px);
+}
+
+#spx-cs2-profile-intel .spx-metric-premier.spx-tooltip-anchor::after {
+  left: 0;
+  transform: translateX(0);
+}
+
+#spx-cs2-profile-intel .spx-metric-premier.spx-tooltip-anchor::before {
+  left: 14px;
+  transform: translateX(0);
+}
+
+#spx-cs2-profile-intel .spx-metric-premier.spx-tooltip-anchor:hover::after {
+  transform: translateY(-2px);
+}
+
+#spx-cs2-profile-intel .spx-metric-premier.spx-tooltip-anchor:hover::before {
+  transform: translateY(-2px);
+}
+
+#spx-cs2-profile-intel .spx-metric-faceitlevel {
+  border-right: none;
+  padding-right: 6px;
+  margin-right: 6px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+#spx-cs2-profile-intel .spx-metric-faceitlevel .spx-level-badge {
+  height: 100%;
+}
+
+#spx-cs2-profile-intel .spx-metric-faceitlevel .spx-level-image {
+  width: 30px;
+  height: 30px;
+}
+
 #spx-cs2-profile-intel .spx-metric-label {
   font-size: 9px;
   text-transform: uppercase;
@@ -191,6 +311,40 @@
   line-height: 1;
   color: #dde4ec;
   font-weight: 600;
+}
+
+#spx-cs2-profile-intel .spx-form-list {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+#spx-cs2-profile-intel .spx-form-token {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+#spx-cs2-profile-intel .spx-form-token-win {
+  background: rgba(50, 170, 90, 0.18);
+  color: #62d487;
+}
+
+#spx-cs2-profile-intel .spx-form-token-loss {
+  background: rgba(220, 80, 80, 0.16);
+  color: #ff8a8a;
+}
+
+#spx-cs2-profile-intel .spx-form-token-draw {
+  background: rgba(150, 165, 180, 0.16);
+  color: #c0ccd7;
 }
 
 #spx-cs2-profile-intel .spx-metric-meta {
@@ -209,38 +363,28 @@
 #spx-cs2-profile-intel .spx-premier-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   margin-top: 0;
-  padding: 3px 10px 4px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-#spx-cs2-profile-intel .spx-premier-badge-peak {
-  padding-left: 7px;
-  padding-right: 10px;
+  width: 78px;
+  height: 28px;
+  padding: 0 10px 1px;
+  border-radius: 0;
+  box-sizing: border-box;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  flex-shrink: 0;
 }
 
 #spx-cs2-profile-intel .spx-metric-premier .spx-metric-value {
   margin-top: 0;
-  font-size: 19px;
-}
-
-#spx-cs2-profile-intel .spx-premier-icon-wrap {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 12px;
-  height: 12px;
-  color: #8fa7be;
-  opacity: 0.85;
-  flex-shrink: 0;
-}
-
-#spx-cs2-profile-intel .spx-premier-icon {
-  display: block;
-  width: 12px;
-  height: 12px;
+  font-size: 16px;
+  font-style: italic;
+  font-weight: 700;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 8px rgba(255, 255, 255, 0.08);
+  font-variant-numeric: tabular-nums;
+  transform: translateX(3px);
 }
 
 #spx-cs2-profile-intel .spx-level-badge {
@@ -261,35 +405,28 @@
 
 /* Tier: none / unranked */
 #spx-cs2-profile-intel .spx-premier-none .spx-premier-badge { background: rgba(150, 165, 180, 0.08); }
-#spx-cs2-profile-intel .spx-premier-none .spx-metric-value  { color: #96a8b8; }
+#spx-cs2-profile-intel .spx-premier-none .spx-metric-value  { color: #aabac7; }
 
 /* Tier: grey  (0 – 4,999) */
-#spx-cs2-profile-intel .spx-premier-grey .spx-premier-badge { background: rgba(160, 175, 190, 0.10); }
-#spx-cs2-profile-intel .spx-premier-grey .spx-metric-value  { color: #b0bec8; }
+#spx-cs2-profile-intel .spx-premier-grey .spx-metric-value  { color: #c7d3db; }
 
 /* Tier: light blue  (5,000 – 9,999) */
-#spx-cs2-profile-intel .spx-premier-lightblue .spx-premier-badge { background: rgba(80, 190, 240, 0.11); }
-#spx-cs2-profile-intel .spx-premier-lightblue .spx-metric-value  { color: #56c6f0; }
+#spx-cs2-profile-intel .spx-premier-lightblue .spx-metric-value  { color: #79d8ff; }
 
 /* Tier: blue  (10,000 – 14,999) */
-#spx-cs2-profile-intel .spx-premier-blue .spx-premier-badge { background: rgba(60, 120, 220, 0.13); }
-#spx-cs2-profile-intel .spx-premier-blue .spx-metric-value  { color: #6aaae0; }
+#spx-cs2-profile-intel .spx-premier-blue .spx-metric-value  { color: #86bdff; }
 
 /* Tier: purple  (15,000 – 19,999) */
-#spx-cs2-profile-intel .spx-premier-purple .spx-premier-badge { background: rgba(120, 80, 210, 0.14); }
-#spx-cs2-profile-intel .spx-premier-purple .spx-metric-value  { color: #aa7ee8; }
+#spx-cs2-profile-intel .spx-premier-purple .spx-metric-value  { color: #c398ff; }
 
 /* Tier: pink  (20,000 – 24,999) */
-#spx-cs2-profile-intel .spx-premier-pink .spx-premier-badge { background: rgba(205, 65, 165, 0.13); }
-#spx-cs2-profile-intel .spx-premier-pink .spx-metric-value  { color: #e060be; }
+#spx-cs2-profile-intel .spx-premier-pink .spx-metric-value  { color: #ff7bd8; }
 
 /* Tier: red  (25,000 – 29,999) */
-#spx-cs2-profile-intel .spx-premier-red .spx-premier-badge { background: rgba(210, 50, 50, 0.13); }
-#spx-cs2-profile-intel .spx-premier-red .spx-metric-value  { color: #e25555; }
+#spx-cs2-profile-intel .spx-premier-red .spx-metric-value  { color: #ff7878; }
 
 /* Tier: gold  (30,000+) */
-#spx-cs2-profile-intel .spx-premier-gold .spx-premier-badge { background: rgba(220, 165, 50, 0.14); }
-#spx-cs2-profile-intel .spx-premier-gold .spx-metric-value  { color: #e4a83c; }
+#spx-cs2-profile-intel .spx-premier-gold .spx-metric-value  { color: #ffc95a; }
 
 /* ── Stat line divider ────────────────────────────── */
 
@@ -301,6 +438,10 @@
   margin: 0 14px;
 }
 
+#spx-cs2-profile-intel .spx-stat-line-steam .spx-stat-divider {
+  margin: 0 10px;
+}
+
 /* ── Commendation strip ───────────────────────────── */
 
 #spx-cs2-profile-intel .spx-commend-strip {
@@ -308,6 +449,10 @@
   align-items: center;
   gap: 16px;
   flex-shrink: 0;
+}
+
+#spx-cs2-profile-intel .spx-stat-line-steam .spx-commend-strip {
+  gap: 12px;
 }
 
 #spx-cs2-profile-intel .spx-commend-item {
@@ -323,6 +468,11 @@
   object-fit: contain;
   opacity: 0.85;
   flex-shrink: 0;
+}
+
+#spx-cs2-profile-intel .spx-stat-line-steam .spx-commend-icon {
+  width: 19px;
+  height: 19px;
 }
 
 #spx-cs2-profile-intel .spx-commend-value {
@@ -445,7 +595,7 @@
   }
 
   #spx-cs2-profile-intel .spx-metric-premier .spx-metric-value {
-    font-size: 16px;
+    font-size: 13px;
   }
 
   #spx-cs2-profile-intel .spx-metric {

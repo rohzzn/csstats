@@ -2,7 +2,16 @@
   const ROOT_ID  = "spx-cs2-profile-intel";
   const CLIPS_ID = "spx-cs2-clips-intel";
   const HEADER_MEDALS_ID = "spx-cs2-header-medals";
-  const DISPLAY_ORDER = ["steam", "faceit", "leetify", "csstats"];
+  const DISPLAY_ORDER = ["steam", "leetify", "csstats"];
+  const PREMIER_BADGE_ASSETS = Object.freeze({
+    grey: chrome.runtime.getURL("premier/0-4999.png"),
+    lightblue: chrome.runtime.getURL("premier/5000-9999.png"),
+    blue: chrome.runtime.getURL("premier/10000-14999.png"),
+    purple: chrome.runtime.getURL("premier/15000-19999.png"),
+    pink: chrome.runtime.getURL("premier/20000-24999.png"),
+    red: chrome.runtime.getURL("premier/25000-29999.png"),
+    gold: chrome.runtime.getURL("premier/30000+.png")
+  });
 
   const state = {
     steamId: null,
@@ -191,6 +200,12 @@
           ? gcProvider.commendations
           : Array.isArray(steamProvider.commendations) ? steamProvider.commendations : []
       });
+    }
+
+    const faceitProvider = providerMap.get("faceit");
+    const leetifyProvider = providerMap.get("leetify");
+    if (leetifyProvider?.state === "ready" && faceitProvider?.state === "ready") {
+      providerMap.set("leetify", mergeLeetifyWithFaceit(leetifyProvider, faceitProvider));
     }
 
     const providers = DISPLAY_ORDER
@@ -527,11 +542,15 @@
   }
 
   function renderMetric(metric) {
-    if (metric?.kind === "cslevel") {
+    if (metric?.kind === "cslevel" || metric?.kind === "faceitlevel") {
       return renderLevelMetric(metric);
     }
 
-    if (metric.label === "Premier" || metric.label === "Peak Premier") {
+    if (metric?.kind === "recentform") {
+      return renderRecentFormMetric(metric);
+    }
+
+    if (metric.label === "Premier") {
       return renderPremierMetric(metric);
     }
 
@@ -539,8 +558,12 @@
       return renderBanMetric(metric);
     }
 
+    const tooltip = metric.tooltip
+      ? ` class="spx-metric spx-tooltip-anchor" title="${escapeAttribute(metric.tooltip)}" data-tooltip="${escapeAttribute(metric.tooltip)}"`
+      : ` class="spx-metric"`;
+
     return `
-      <div class="spx-metric">
+      <div${tooltip}>
         <div class="spx-metric-label">${escapeHtml(metric.label)}</div>
         <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
         ${metric.meta ? `<div class="spx-metric-meta">${escapeHtml(metric.meta)}</div>` : ""}
@@ -552,11 +575,34 @@
     const image = metric.image
       ? `<img class="spx-level-image" src="${escapeAttribute(metric.image)}" alt="${escapeAttribute(metric.label || "CS Level")}" title="${escapeAttribute(metric.label || "CS Level")}" />`
       : "";
+    const metricClass = metric?.kind === "faceitlevel"
+      ? "spx-metric spx-metric-level spx-metric-faceitlevel"
+      : "spx-metric spx-metric-level";
 
     return `
-      <div class="spx-metric spx-metric-level">
+      <div class="${metricClass}">
         <div class="spx-level-badge">
           ${image}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderRecentFormMetric(metric) {
+    const tokens = Array.isArray(metric?.tokens) ? metric.tokens : [];
+
+    return `
+      <div class="spx-metric spx-metric-form">
+        <div class="spx-metric-label">${escapeHtml(metric.label)}</div>
+        <div class="spx-form-list">
+          ${tokens.map((token) => {
+            const tokenClass = token === "W"
+              ? "spx-form-token spx-form-token-win"
+              : token === "L"
+                ? "spx-form-token spx-form-token-loss"
+                : "spx-form-token spx-form-token-draw";
+            return `<span class="${tokenClass}">${escapeHtml(token)}</span>`;
+          }).join("")}
         </div>
       </div>
     `;
@@ -578,22 +624,17 @@
   function renderPremierMetric(metric) {
     const rawNum = parseInt(String(metric.value || "").replace(/,/g, ""), 10);
     const tier = getPremierTier(rawNum);
-    const isPeak = metric.label === "Peak Premier";
-    const badgeClass = isPeak ? "spx-premier-badge spx-premier-badge-peak" : "spx-premier-badge";
-    const icon = isPeak
-      ? `
-        <div class="spx-premier-icon-wrap" aria-hidden="true">
-          <svg class="spx-premier-icon" viewBox="0 0 16 16" fill="none">
-            <path d="M8 1.8 9.8 5.45l4.02.58-2.91 2.83.69 4-3.6-1.89-3.6 1.89.69-4L2.18 6.03l4.02-.58L8 1.8Z" fill="currentColor"/>
-          </svg>
-        </div>
-      `
-      : "";
+    const badgeAsset = getPremierBadgeAsset(rawNum);
+    const tooltip = metric.tooltip || metric.label;
+    const tooltipClass = metric.tooltip ? " spx-tooltip-anchor" : "";
+    const tooltipAttributes = metric.tooltip
+      ? ` title="${escapeAttribute(tooltip)}" data-tooltip="${escapeAttribute(tooltip)}"`
+      : ` title="${escapeAttribute(tooltip)}"`;
+    const badgeStyle = badgeAsset ? ` style="background-image: url('${badgeAsset}');"` : "";
 
     return `
-      <div class="spx-metric spx-metric-premier spx-premier-${tier}" title="${escapeAttribute(metric.label)}">
-        <div class="${badgeClass}">
-          ${icon}
+      <div class="spx-metric spx-metric-premier spx-premier-${tier}${tooltipClass}"${tooltipAttributes}>
+        <div class="spx-premier-badge"${badgeStyle}>
           <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
         </div>
       </div>
@@ -609,6 +650,11 @@
     if (rating < 25000) { return "pink"; }
     if (rating < 30000) { return "red"; }
     return "gold";
+  }
+
+  function getPremierBadgeAsset(rating) {
+    const tier = getPremierTier(rating);
+    return PREMIER_BADGE_ASSETS[tier] || "";
   }
 
   function makeFallbackProvider(providerId) {
@@ -632,6 +678,38 @@
 
     base.push(levelMetric);
     return base;
+  }
+
+  function mergeLeetifyWithFaceit(leetifyProvider, faceitProvider) {
+    const leetifyMetrics = Array.isArray(leetifyProvider.metrics) ? [...leetifyProvider.metrics] : [];
+    const faceitMetrics = Array.isArray(faceitProvider.metrics) ? faceitProvider.metrics : [];
+    const eloMetric = faceitMetrics.find((metric) => metric?.label === "ELO");
+
+    if (eloMetric && !leetifyMetrics.some((metric) => metric?.label === "ELO")) {
+      const mergedMetrics = [];
+      if (faceitProvider.rankImage && !leetifyMetrics.some((metric) => metric?.kind === "faceitlevel")) {
+        mergedMetrics.push({
+          kind: "faceitlevel",
+          label: faceitProvider.rankLabel || "FACEIT level",
+          image: faceitProvider.rankImage
+        });
+      }
+      mergedMetrics.push(eloMetric);
+
+      const premierIndex = leetifyMetrics.findIndex((metric) => metric?.label === "Premier");
+      if (premierIndex >= 0) {
+        leetifyMetrics.splice(premierIndex + 1, 0, ...mergedMetrics);
+      } else {
+        leetifyMetrics.unshift(...mergedMetrics);
+      }
+    }
+
+    return {
+      ...leetifyProvider,
+      rankImage: "",
+      rankLabel: "",
+      metrics: leetifyMetrics
+    };
   }
 
   function escapeHtml(value) {
