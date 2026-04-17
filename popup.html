@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CS Stats Settings</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="spx-settings-app">
+      <header class="spx-settings-hero">
+        <h1>CS Stats Settings</h1>
+      </header>
+
+      <section class="spx-settings-card">
+        <div class="spx-settings-section-head">
+          <h2>Stats</h2>
+        </div>
+
+        <label class="spx-setting-row" for="showMedals">
+          <span class="spx-setting-line">
+            <span class="spx-setting-label">Medals</span>
+          </span>
+          <span class="spx-toggle">
+            <input id="showMedals" type="checkbox" />
+            <span class="spx-toggle-ui"></span>
+          </span>
+        </label>
+
+        <label class="spx-setting-row" for="showPeakPremier">
+          <span class="spx-setting-line">
+            <span class="spx-setting-label">Peak Premier</span>
+          </span>
+          <span class="spx-toggle">
+            <input id="showPeakPremier" type="checkbox" />
+            <span class="spx-toggle-ui"></span>
+          </span>
+        </label>
+
+        <label class="spx-setting-row" for="showCompetitiveRanks">
+          <span class="spx-setting-line">
+            <span class="spx-setting-label">Competitive Ranks</span>
+          </span>
+          <span class="spx-toggle">
+            <input id="showCompetitiveRanks" type="checkbox" />
+            <span class="spx-toggle-ui"></span>
+          </span>
+        </label>
+      </section>
+
+      <section class="spx-settings-card">
+        <label class="spx-settings-section-head spx-settings-section-toggle" for="showMatches">
+          <span class="spx-headline-line">
+            <span class="spx-headline-title">Matches</span>
+          </span>
+          <span class="spx-toggle">
+            <input id="showMatches" type="checkbox" />
+            <span class="spx-toggle-ui"></span>
+          </span>
+        </label>
+
+        <div class="spx-setting-stack" id="matchesGroup">
+          <div class="spx-choice-grid" role="radiogroup" aria-label="Matches to show">
+            <label class="spx-choice-pill" for="matchesToShow5">
+              <input id="matchesToShow5" name="matchesToShow" type="radio" value="5" />
+              <span>5</span>
+            </label>
+            <label class="spx-choice-pill" for="matchesToShow10">
+              <input id="matchesToShow10" name="matchesToShow" type="radio" value="10" />
+              <span>10</span>
+            </label>
+            <label class="spx-choice-pill" for="matchesToShow15">
+              <input id="matchesToShow15" name="matchesToShow" type="radio" value="15" />
+              <span>15</span>
+            </label>
+          </div>
+        </div>
+      </section>
+
+      <section class="spx-settings-card">
+        <label class="spx-settings-section-head spx-settings-section-toggle" for="showClips">
+          <span class="spx-headline-line">
+            <span class="spx-headline-title">Clips</span>
+          </span>
+          <span class="spx-toggle">
+            <input id="showClips" type="checkbox" />
+            <span class="spx-toggle-ui"></span>
+          </span>
+        </label>
+        <a class="spx-link-card" href="https://allstar.gg/" target="_blank" rel="noreferrer">
+          <span class="spx-link-label">Open AllStar</span>
+        </a>
+      </section>
+
+      <footer class="spx-settings-footer">
+        <span class="spx-save-state" id="saveState" aria-live="polite"></span>
+      </footer>
+    </main>
+
+    <script src="settings.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

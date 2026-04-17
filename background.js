@@ -1,3 +1,5 @@
+importScripts("settings.js");
+
 try {
   importScripts("collectibles-map.js");
 } catch (_error) {
@@ -39,6 +41,7 @@ async function buildProfileBundle(message) {
 
   const profileUrl = String(message?.profileUrl || "");
   const force = Boolean(message?.force);
+  const userSettings = await SPX_readUserSettings();
   const settings = SETTINGS;
 
   const providerTasks = {
@@ -67,8 +70,89 @@ async function buildProfileBundle(message) {
     steamId,
     profileUrl,
     fetchedAt: new Date().toISOString(),
-    providers
+    settings: userSettings,
+    providers: applyUserSettingsToProviders(providers, userSettings)
   };
+}
+
+function applyUserSettingsToProviders(providers, userSettings) {
+  return providers.map((provider) => {
+    if (!provider || typeof provider !== "object") {
+      return provider;
+    }
+
+    const nextProvider = {
+      ...provider,
+      metrics: applyPremierPreferenceToMetrics(provider.metrics, userSettings.showPeakPremier),
+      competitiveRanks: userSettings.showCompetitiveRanks
+        ? (Array.isArray(provider.competitiveRanks) ? provider.competitiveRanks : [])
+        : [],
+      wingmanRanks: userSettings.showCompetitiveRanks
+        ? (Array.isArray(provider.wingmanRanks) ? provider.wingmanRanks : [])
+        : []
+    };
+
+    if (provider.id === "leetify" && Array.isArray(provider.matches)) {
+      return {
+        ...nextProvider,
+        matches: provider.matches.slice(0, userSettings.matchesToShow)
+      };
+    }
+
+    return nextProvider;
+  });
+}
+
+function applyPremierPreferenceToMetrics(metrics, preferPeak) {
+  const list = Array.isArray(metrics)
+    ? metrics.map((metric) => ({ ...metric }))
+    : [];
+
+  if (!list.length) {
+    return list;
+  }
+
+  const bestMetric = list.find((metric) => metric?.label === "Best") || null;
+
+  return list.flatMap((metric) => {
+    if (!metric || typeof metric !== "object") {
+      return [];
+    }
+
+    if (metric.label === "Best") {
+      return [];
+    }
+
+    if (metric.label !== "Premier") {
+      return [metric];
+    }
+
+    if (!preferPeak) {
+      return [metric];
+    }
+
+    const peakValue = resolvePeakPremierValue(metric, bestMetric);
+    if (!peakValue) {
+      return [metric];
+    }
+
+    return [{
+      ...metric,
+      label: "Peak Premier",
+      value: peakValue,
+      tooltip: metric.value ? `Current Premier: ${metric.value}` : metric.tooltip
+    }];
+  });
+}
+
+function resolvePeakPremierValue(metric, bestMetric) {
+  if (bestMetric?.value) {
+    return String(bestMetric.value);
+  }
+
+  const tooltip = String(metric?.tooltip || "");
+  const match = tooltip.match(/Peak Premier:\s*([0-9][\d,]*)/i);
+  return match ? match[1] : null;
 }
 
 async function getCachedProvider(providerId, steamId, settings, force, loader) {
@@ -1318,7 +1402,7 @@ function resolveLeetifyRecentMatches(internalProfile) {
       };
     })
     .filter(Boolean)
-    .slice(0, 10);
+    .slice(0, 15);
 }
 
 function normalizeLeetifyMatchResult(value) {

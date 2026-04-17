@@ -4,7 +4,9 @@
   "short_name": "CS Stats",
   "version": "1.1.2",
   "description": "CS2 stats on every Steam profile — FACEIT rank, CS Rating, Leetify ratings, commendations, friend code and AllStar clips.",
-  "permissions": [],
+  "permissions": [
+    "storage"
+  ],
   "host_permissions": [
     "https://steamcommunity.com/*",
     "https://api.cs-prod.leetify.com/*",
@@ -17,6 +19,7 @@
   "background": {
     "service_worker": "background.js"
   },
+  "options_page": "popup.html",
   "content_scripts": [
     {
       "matches": [
@@ -24,6 +27,7 @@
         "https://steamcommunity.com/profiles/*"
       ],
       "js": [
+        "settings.js",
         "content.js"
       ],
       "css": [
@@ -56,6 +60,7 @@
     "128": "icon128.png"
   },
   "action": {
+    "default_popup": "popup.html",
     "default_title": "CS Stats",
     "default_icon": {
       "16": "icon16.png",

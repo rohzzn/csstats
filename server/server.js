@@ -16,6 +16,9 @@ const GC_THROTTLE_MS         = Number(process.env.GC_THROTTLE_MS) || 500;
 const GC_TIMEOUT_MS          = Number(process.env.GC_TIMEOUT_MS) || 10000;
 const GC_REQUEST_WAIT_MS     = Number(process.env.GC_REQUEST_WAIT_MS) || 8000;
 const CACHE_TTL_MS           = Number(process.env.CACHE_TTL_MS) || 5 * 60 * 1000;
+const CACHE_PERSIST_INTERVAL_MS = Number(process.env.CACHE_PERSIST_INTERVAL_MS) || 30 * 1000;
+const STALE_CACHE_MAX_AGE_MS = Number(process.env.STALE_CACHE_MAX_AGE_MS) || 30 * 24 * 60 * 60 * 1000;
+const CACHE_MAX_ENTRIES      = Number(process.env.CACHE_MAX_ENTRIES) || 5000;
 const WATCHDOG_INTERVAL_MS   = Number(process.env.WATCHDOG_INTERVAL_MS) || 30 * 1000;
 const GC_CONNECT_GRACE_MS    = Number(process.env.GC_CONNECT_GRACE_MS) || 45 * 1000;
 const GC_STALE_RELOG_MS      = Number(process.env.GC_STALE_RELOG_MS) || 3 * 60 * 1000;
@@ -23,6 +26,7 @@ const GC_STALE_EXIT_MS       = Number(process.env.GC_STALE_EXIT_MS) || 8 * 60 * 
 const RECOVERY_COOLDOWN_MS   = Number(process.env.RECOVERY_COOLDOWN_MS) || 45 * 1000;
 const MANUAL_RETRY_BASE_MS   = Number(process.env.MANUAL_RETRY_BASE_MS) || 15 * 1000;
 const MANUAL_RETRY_MAX_MS    = Number(process.env.MANUAL_RETRY_MAX_MS) || 2 * 60 * 1000;
+const STATUS_EVENT_LIMIT     = Number(process.env.STATUS_EVENT_LIMIT) || 40;
 const IS_RAILWAY             = Object.keys(process.env).some((key) => key.startsWith("RAILWAY_"));
 const EXIT_ON_STALE_GC       = parseBooleanEnv(process.env.GC_STALE_EXIT_ENABLED, IS_RAILWAY);
 const APP_ID_CS2             = 730;
@@ -32,8 +36,9 @@ if (!STEAM_USERNAME || (!STEAM_PASSWORD && !REFRESH_TOKEN_ENV)) {
   process.exit(1);
 }
 
-const STATE_DIR = path.join(__dirname, ".steam-state");
+const STATE_DIR = path.resolve(process.env.STEAM_STATE_DIR || path.join(__dirname, ".steam-state"));
 const REFRESH_TOKEN_FILE = path.join(STATE_DIR, "refresh-token.json");
+const PROFILE_CACHE_FILE = path.join(STATE_DIR, "profile-cache.json");
 fs.mkdirSync(STATE_DIR, { recursive: true });
 
 process.on("unhandledRejection", (reason) => {
@@ -72,20 +77,42 @@ const runtime = {
   lastSteamError: "",
   lastGcError: "",
   lastProfileError: "",
+  lastCachePersistAt: null,
+  cacheEntriesLoaded: 0,
+  cachePersistFailures: 0,
   lastGcStatus: null,
   logOnTimer: null,
   gcRecoveryTimer: null,
+  recentEvents: [],
   shuttingDown: false
 };
 
 let gcReady = false;
 let gcReadyWaiters = [];
 
+function recordEvent(level, message, extra = null) {
+  const entry = {
+    at: new Date().toISOString(),
+    level,
+    message
+  };
+
+  if (extra && typeof extra === "object") {
+    Object.assign(entry, extra);
+  }
+
+  runtime.recentEvents.push(entry);
+  if (runtime.recentEvents.length > STATUS_EVENT_LIMIT) {
+    runtime.recentEvents.shift();
+  }
+}
+
 steamClient.on("loggedOn", () => {
   runtime.steamStatus = "connected";
   runtime.lastSteamLogOnAt = Date.now();
   runtime.nextManualRetryMs = MANUAL_RETRY_BASE_MS;
   clearTimer("logOnTimer");
+  recordEvent("info", `Steam logged on via ${runtime.loginMode}.`);
   console.log(`[Steam] Logged on as ${STEAM_USERNAME} via ${runtime.loginMode}`);
   steamClient.setPersona(SteamUser.EPersonaState.Offline);
   ensurePlayingCs2("post-logon");
@@ -108,6 +135,7 @@ steamClient.on("steamGuard", (_domain, callback, lastCodeWrong) => {
 
 steamClient.on("refreshToken", (refreshToken) => {
   persistRefreshToken(refreshToken);
+  recordEvent("info", "Stored refreshed Steam login token.");
   console.log("[Steam] Stored refreshed Steam login token.");
 });
 
@@ -134,6 +162,10 @@ steamClient.on("disconnected", (eresult, message) => {
   runtime.lastSteamDisconnectAt = Date.now();
   runtime.lastSteamError = message ? `Disconnected: ${message}` : `Disconnected with eresult ${eresult}`;
   resolveGcReadyWaiters(false);
+  recordEvent("warn", "Steam disconnected.", {
+    eresult: eresult ?? null,
+    message: message || null
+  });
   console.warn("[Steam] Disconnected:", message || eresult);
 });
 
@@ -145,6 +177,7 @@ csgo.on("connectedToGC", () => {
   runtime.lastGcError = "";
   clearTimer("gcRecoveryTimer");
   resolveGcReadyWaiters(true);
+  recordEvent("info", "CS2 GC connected and ready.");
   console.log("[CS2 GC] Connected - ready");
 });
 
@@ -153,6 +186,7 @@ csgo.on("disconnectedFromGC", (reason) => {
   runtime.lastGcDisconnectAt = Date.now();
   runtime.lastGcError = `Disconnected from GC (${reason})`;
   resolveGcReadyWaiters(false);
+  recordEvent("warn", "CS2 GC disconnected.", { reason: reason ?? null });
   console.warn("[CS2 GC] Disconnected:", reason);
   scheduleGcRecovery("gc disconnected", 5000, false);
 });
@@ -162,6 +196,7 @@ csgo.on("error", (error) => {
   runtime.lastGcDisconnectAt = Date.now();
   runtime.lastGcError = formatError(error);
   resolveGcReadyWaiters(false);
+  recordEvent("error", "CS2 GC emitted a fatal error.", { error: runtime.lastGcError });
   console.error("[CS2 GC] Fatal error:", runtime.lastGcError);
   scheduleManualSteamRecovery("gc fatal error", 10000);
 });
@@ -267,14 +302,51 @@ function parseProfile(profile) {
   };
 }
 
-const cache = new Map();
+const cache = loadProfileCache();
+runtime.cacheEntriesLoaded = cache.size;
+recordEvent("info", `Loaded ${cache.size} persisted profile cache entr${cache.size === 1 ? "y" : "ies"}.`);
+let cacheDirty = false;
+
+function getCachedEntry(steamId) {
+  return cache.get(steamId) || null;
+}
+
 function getCached(steamId) {
-  const entry = cache.get(steamId);
+  const entry = getCachedEntry(steamId);
   return entry && entry.expiresAt > Date.now() ? entry.data : null;
 }
 
+function getStaleCachedEntry(steamId) {
+  const entry = getCachedEntry(steamId);
+  if (!entry?.data || !entry.cachedAt) return null;
+
+  const maxAgeMs = Math.max(CACHE_TTL_MS, STALE_CACHE_MAX_AGE_MS);
+  if (entry.cachedAt + maxAgeMs <= Date.now()) {
+    return null;
+  }
+
+  return entry;
+}
+
 function setCached(steamId, data) {
-  cache.set(steamId, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+  const now = Date.now();
+  cache.set(steamId, {
+    data,
+    expiresAt: now + CACHE_TTL_MS,
+    cachedAt: now
+  });
+  pruneCache(now);
+  cacheDirty = true;
+}
+
+function buildStaleCacheResponse(entry, reason) {
+  return {
+    ...entry.data,
+    stale: true,
+    staleReason: reason,
+    cachedAt: toIso(entry.cachedAt),
+    cacheAgeMs: msSince(entry.cachedAt)
+  };
 }
 
 const app = express();
@@ -312,11 +384,16 @@ app.get("/profile/:steamId", async (req, res) => {
 
   const cached = getCached(steamId);
   if (cached) return res.json(cached);
+  const staleEntry = getStaleCachedEntry(steamId);
 
   if (!gcReady) {
     scheduleGcRecovery("profile request", 0, shouldForceGameSession());
     const ready = await waitForGcReady(GC_REQUEST_WAIT_MS);
     if (!ready) {
+      if (staleEntry) {
+        recordEvent("warn", `Served stale cache for ${steamId} because GC was unavailable.`);
+        return res.json(buildStaleCacheResponse(staleEntry, "gc_not_ready"));
+      }
       return res.status(503).json({ ok: false, error: "GC not connected yet - retry in a few seconds" });
     }
   }
@@ -336,10 +413,21 @@ app.get("/profile/:steamId", async (req, res) => {
       ? { ok: true, found: true, ...parsed }
       : { ok: true, found: false };
 
+    if (!result.found && staleEntry?.data?.found) {
+      recordEvent("warn", `Served stale cache for ${steamId} because the live GC response was empty.`);
+      return res.json(buildStaleCacheResponse(staleEntry, "gc_empty_response"));
+    }
+
     setCached(steamId, result);
     res.json(result);
   } catch (error) {
     runtime.lastProfileError = formatError(error);
+    if (staleEntry) {
+      recordEvent("warn", `Served stale cache for ${steamId} after GC request failure.`, {
+        error: runtime.lastProfileError
+      });
+      return res.json(buildStaleCacheResponse(staleEntry, "gc_request_failed"));
+    }
     res.status(500).json({ ok: false, error: error.message });
   }
 });
@@ -347,12 +435,15 @@ app.get("/profile/:steamId", async (req, res) => {
 app.listen(PORT, HOST, () => {
   console.log(`[Server] CS2 Recon GC proxy listening on ${HOST}:${PORT}`);
   console.log("[Server] Starting Steam / GC session manager...");
+  recordEvent("info", `Server listening on ${HOST}:${PORT}.`);
   scheduleLogOn("startup", 0);
   startWatchdog();
+  startCachePersistence();
 });
 
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+process.on("exit", () => persistProfileCache(true));
 
 function scheduleLogOn(reason, delayMs = 0) {
   if (runtime.shuttingDown) return;
@@ -373,6 +464,7 @@ function performLogOn(reason) {
   runtime.loginMode = details.refreshToken ? "refresh_token" : "password";
   runtime.steamStatus = "connecting";
 
+  recordEvent("info", `Attempting Steam login via ${runtime.loginMode}.`, { reason });
   console.log(`[Steam] Attempting login via ${runtime.loginMode} (${reason})`);
 
   try {
@@ -412,6 +504,7 @@ function ensurePlayingCs2(reason, force = false) {
   try {
     steamClient.setPersona(SteamUser.EPersonaState.Offline);
     steamClient.gamesPlayed([APP_ID_CS2], force);
+    recordEvent("info", `Requested CS2 game session${force ? " (force)" : ""}.`, { reason });
     console.log(`[Recovery] Requested CS2 game session${force ? " (force)" : ""}: ${reason}`);
   } catch (error) {
     runtime.lastSteamErrorAt = Date.now();
@@ -436,6 +529,7 @@ function scheduleManualSteamRecovery(reason, delayMs = null) {
   const retryMs = delayMs === null ? getNextManualRetryMs() : delayMs;
   runtime.lastRecoveryAt = Date.now();
   runtime.lastRecoveryAction = `steam relog - ${reason}`;
+  recordEvent("warn", "Scheduled Steam recovery.", { reason, retryMs });
 
   clearTimer("logOnTimer");
   runtime.logOnTimer = setTimeout(() => {
@@ -449,6 +543,7 @@ function scheduleManualSteamRecovery(reason, delayMs = null) {
         runtime.manualRelogAttempts += 1;
         runtime.lastManualRelogAt = Date.now();
         runtime.steamStatus = "reconnecting";
+        recordEvent("warn", "Relogging Steam session.", { reason });
         console.warn(`[Recovery] Relogging Steam session (${reason})`);
         steamClient.relog();
         return;
@@ -487,8 +582,10 @@ function startWatchdog() {
       if (
         EXIT_ON_STALE_GC &&
         disconnectedFor >= GC_STALE_EXIT_MS &&
-        runtime.recoveryAttemptsSinceReady >= 2
+        (runtime.lastGcReadyAt || runtime.recoveryAttemptsSinceReady >= 2 || runtime.manualRelogAttempts > 0 || runtime.loginAttempts > 1)
       ) {
+        recordEvent("error", `GC stayed unhealthy for ${Math.round(disconnectedFor / 1000)}s. Exiting for a clean Railway restart.`);
+        persistProfileCache(true);
         console.error(`[Recovery] GC has been unhealthy for ${Math.round(disconnectedFor / 1000)}s. Exiting so Railway can restart the process.`);
         process.exit(1);
       }
@@ -564,9 +661,14 @@ function buildStatus(verbose) {
     recoveryAttemptsSinceReady: runtime.recoveryAttemptsSinceReady,
     nextManualRetryMs: runtime.nextManualRetryMs,
     exitOnStaleGc: EXIT_ON_STALE_GC,
+    cacheEntriesLoaded: runtime.cacheEntriesLoaded,
+    lastCachePersistAt: toIso(runtime.lastCachePersistAt),
+    cachePersistFailures: runtime.cachePersistFailures,
+    staleCacheMaxAgeMs: STALE_CACHE_MAX_AGE_MS,
     lastSteamError: runtime.lastSteamError || null,
     lastGcError: runtime.lastGcError || null,
-    lastProfileError: runtime.lastProfileError || null
+    lastProfileError: runtime.lastProfileError || null,
+    recentEvents: runtime.recentEvents
   };
 }
 
@@ -594,6 +696,112 @@ function persistRefreshToken(refreshToken) {
   } catch (error) {
     console.error("[Steam] Failed to persist refresh token:", error?.message || error);
   }
+}
+
+function loadProfileCache() {
+  try {
+    const payload = JSON.parse(fs.readFileSync(PROFILE_CACHE_FILE, "utf8"));
+    const rawEntries = payload?.entries && typeof payload.entries === "object"
+      ? payload.entries
+      : payload && typeof payload === "object" ? payload : {};
+    const loaded = new Map();
+
+    for (const [steamId, value] of Object.entries(rawEntries)) {
+      const entry = normalizeCacheEntry(value);
+      if (entry) {
+        loaded.set(steamId, entry);
+      }
+    }
+
+    pruneCacheMap(loaded);
+    return loaded;
+  } catch {
+    return new Map();
+  }
+}
+
+function normalizeCacheEntry(value) {
+  if (!value || typeof value !== "object" || !value.data || typeof value.data !== "object") {
+    return null;
+  }
+
+  const expiresAt = Number(value.expiresAt);
+  const cachedAt = Number(value.cachedAt || value.expiresAt);
+  if (!Number.isFinite(expiresAt) || !Number.isFinite(cachedAt)) {
+    return null;
+  }
+
+  return {
+    data: value.data,
+    expiresAt,
+    cachedAt
+  };
+}
+
+function pruneCache(now = Date.now()) {
+  pruneCacheMap(cache, now);
+}
+
+function pruneCacheMap(targetCache, now = Date.now()) {
+  const oldestAllowed = now - Math.max(CACHE_TTL_MS, STALE_CACHE_MAX_AGE_MS);
+  for (const [steamId, entry] of targetCache) {
+    if (!entry?.data || !Number.isFinite(entry.cachedAt) || entry.cachedAt < oldestAllowed) {
+      targetCache.delete(steamId);
+    }
+  }
+
+  if (targetCache.size <= CACHE_MAX_ENTRIES) {
+    return;
+  }
+
+  const overflow = targetCache.size - CACHE_MAX_ENTRIES;
+  const oldestEntries = [...targetCache.entries()]
+    .sort((left, right) => (left[1].cachedAt || 0) - (right[1].cachedAt || 0))
+    .slice(0, overflow);
+
+  for (const [steamId] of oldestEntries) {
+    targetCache.delete(steamId);
+  }
+}
+
+function persistProfileCache(force = false) {
+  if (!force && !cacheDirty) return;
+
+  try {
+    pruneCache();
+    const entries = Object.fromEntries(
+      [...cache.entries()].map(([steamId, entry]) => [
+        steamId,
+        {
+          data: entry.data,
+          expiresAt: entry.expiresAt,
+          cachedAt: entry.cachedAt
+        }
+      ])
+    );
+
+    fs.writeFileSync(
+      PROFILE_CACHE_FILE,
+      JSON.stringify({ updatedAt: new Date().toISOString(), entries }, null, 2),
+      "utf8"
+    );
+
+    cacheDirty = false;
+    runtime.lastCachePersistAt = Date.now();
+  } catch (error) {
+    runtime.cachePersistFailures += 1;
+    recordEvent("error", "Failed to persist profile cache.", {
+      error: error?.message || String(error)
+    });
+    console.error("[Cache] Failed to persist profile cache:", error?.message || error);
+  }
+}
+
+function startCachePersistence() {
+  setInterval(() => {
+    if (runtime.shuttingDown) return;
+    persistProfileCache(false);
+  }, CACHE_PERSIST_INTERVAL_MS).unref?.();
 }
 
 function getNextManualRetryMs() {
@@ -647,7 +855,9 @@ function requireOptional(pkg, hint) {
 function shutdown() {
   if (runtime.shuttingDown) return;
   runtime.shuttingDown = true;
+  recordEvent("info", "Server shutdown requested.");
   console.log("[Server] Shutting down...");
+  persistProfileCache(true);
   try {
     steamClient.gamesPlayed([]);
   } catch (_ignored) {}

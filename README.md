@@ -59,6 +59,8 @@ For Railway:
 - Set the service root to `server/`
 - Set `STEAM_BOT_USERNAME`, `STEAM_BOT_PASSWORD`, and optionally `STEAM_BOT_SHARED_SECRET` as Railway environment variables
 - For the most reliable reconnects, also set `STEAM_BOT_REFRESH_TOKEN` once you have one
+- Attach a Railway volume and set `STEAM_STATE_DIR` to the volume mount path so the refresh token and persisted GC cache survive restarts
+- If your Railway plan allows it, use the `Always` restart policy so an intentional stale-GC exit comes back immediately
 - Do not hardcode Railway's assigned `PORT`; Railway injects it automatically
 - Keep `HOST=0.0.0.0` so Railway can reach the process
 - Point Railway's health check at `/readyz` if you want the platform to treat a lost GC session as unhealthy
@@ -78,9 +80,9 @@ Extension                  Local server (port 3000)        Valve Game Coordinato
    │ ◀── { premier_rating, … } │                                    │
 ```
 
-The server keeps a persistent GC session and processes one request at a time with a 500 ms throttle to respect Valve's rate limits. Responses are cached for 5 minutes.
+The server keeps a persistent GC session and processes one request at a time with a 500 ms throttle to respect Valve's rate limits. Fresh responses are cached for 5 minutes, and the server can now persist the last known GC results to disk so hosted deployments can continue serving stale-but-useful data while GC reconnects.
 
-If Steam or the GC drops, the server now tries to recover automatically by restoring the Steam session, reasserting `gamesPlayed(730)`, waiting briefly for GC recovery on live requests, and on Railway optionally exiting after a long unhealthy period so the platform can restart it.
+If Steam or the GC drops, the server now tries to recover automatically by restoring the Steam session, reasserting `gamesPlayed(730)`, waiting briefly for GC recovery on live requests, serving the last persisted GC result when the live session is unavailable, and on Railway exiting after a long unhealthy period so the platform can restart it cleanly.
 
 The extension points at the hosted GC proxy. If that proxy is unavailable, the CS2 row is silently hidden while the other rows keep working.
 

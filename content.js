@@ -20,6 +20,7 @@
     root: null,
     matchesRoot: null,
     clipsRoot: null,
+    settings: { ...SPX_DEFAULT_USER_SETTINGS },
     headerMedals: [],
     headerMedalIndex: 0,
     headerMedalKey: ""
@@ -33,6 +34,17 @@
     requestAnimationFrame(() => {
       resizeQueued = false;
       renderHeaderMedals();
+    });
+  });
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "sync") return;
+    if (!Object.keys(changes || {}).some((key) => SPX_isUserSettingKey(key))) return;
+    if (!state.steamId || !state.profileUrl) return;
+
+    loadBundle({
+      steamId: state.steamId,
+      profileUrl: state.profileUrl
     });
   });
 
@@ -155,10 +167,17 @@
         return;
       }
 
-      renderBundle(state.root, response);
-      renderMatchesSection(state.matchesRoot, response);
-      renderClipsSection(state.clipsRoot, response);
-      renderHeaderMedals(response);
+      const latestSettings = await SPX_readUserSettings();
+      const hydratedResponse = {
+        ...response,
+        settings: latestSettings
+      };
+
+      state.settings = latestSettings;
+      renderBundle(state.root, hydratedResponse);
+      renderMatchesSection(state.matchesRoot, hydratedResponse);
+      renderClipsSection(state.clipsRoot, hydratedResponse);
+      renderHeaderMedals(hydratedResponse);
     } catch (error) {
       renderFatal(state.root, error.message || "The extension could not load provider data.");
     }
@@ -248,6 +267,12 @@
   }
 
   function renderHeaderMedals(bundle = null) {
+    const settings = resolveUserSettings(bundle);
+    if (!settings.showMedals) {
+      clearHeaderMedals();
+      return;
+    }
+
     const medals = bundle ? getGcMedals(bundle) : state.headerMedals;
     const target = resolveHeaderMedalTarget();
     let root = document.getElementById(HEADER_MEDALS_ID);
@@ -321,6 +346,11 @@
 
   function renderClipsSection(root, bundle) {
     if (!root) return;
+    const settings = resolveUserSettings(bundle);
+    if (!settings.showClips) {
+      root.innerHTML = "";
+      return;
+    }
 
     const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
     const allstar = providers.find((p) => p.id === "allstar");
@@ -357,10 +387,17 @@
 
   function renderMatchesSection(root, bundle) {
     if (!root) return;
+    const settings = resolveUserSettings(bundle);
+    if (!settings.showMatches) {
+      root.innerHTML = "";
+      return;
+    }
 
     const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
     const leetify = providers.find((provider) => provider.id === "leetify");
-    const matches = (leetify?.state === "ready" && Array.isArray(leetify.matches)) ? leetify.matches : [];
+    const matches = (leetify?.state === "ready" && Array.isArray(leetify.matches))
+      ? leetify.matches.slice(0, settings.matchesToShow)
+      : [];
 
     if (!matches.length) {
       root.innerHTML = "";
@@ -617,7 +654,7 @@
       return renderRecentFormMetric(metric);
     }
 
-    if (metric.label === "Premier") {
+    if (metric.label === "Premier" || metric.label === "Peak Premier") {
       return renderPremierMetric(metric);
     }
 
@@ -636,6 +673,10 @@
         ${metric.meta ? `<div class="spx-metric-meta">${escapeHtml(metric.meta)}</div>` : ""}
       </div>
     `;
+  }
+
+  function resolveUserSettings(bundle) {
+    return SPX_normalizeUserSettings(bundle?.settings || state.settings || SPX_DEFAULT_USER_SETTINGS);
   }
 
   function renderLevelMetric(metric) {
@@ -763,7 +804,7 @@
       }
       mergedMetrics.push(eloMetric);
 
-      const premierIndex = leetifyMetrics.findIndex((metric) => metric?.label === "Premier");
+      const premierIndex = leetifyMetrics.findIndex((metric) => metric?.label === "Premier" || metric?.label === "Peak Premier");
       if (premierIndex >= 0) {
         leetifyMetrics.splice(premierIndex + 1, 0, ...mergedMetrics);
       } else {
