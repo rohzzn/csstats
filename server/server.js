@@ -1,6 +1,7 @@
 require("dotenv").config();
 const fs = require("fs");
 const path = require("path");
+const readline = require("readline");
 const SteamUser = require("steam-user");
 const GlobalOffensive = require("globaloffensive");
 const express = require("express");
@@ -11,6 +12,7 @@ const HOST                   = process.env.HOST || "0.0.0.0";
 const STEAM_USERNAME         = process.env.STEAM_BOT_USERNAME;
 const STEAM_PASSWORD         = process.env.STEAM_BOT_PASSWORD;
 const SHARED_SECRET          = process.env.STEAM_BOT_SHARED_SECRET || null;
+const STEAM_GUARD_CODE_ENV   = process.env.STEAM_BOT_GUARD_CODE || process.env.STEAM_GUARD_CODE || "";
 const REFRESH_TOKEN_ENV      = process.env.STEAM_BOT_REFRESH_TOKEN || "";
 const GC_THROTTLE_MS         = Number(process.env.GC_THROTTLE_MS) || 500;
 const GC_TIMEOUT_MS          = Number(process.env.GC_TIMEOUT_MS) || 10000;
@@ -89,6 +91,7 @@ const runtime = {
 
 let gcReady = false;
 let gcReadyWaiters = [];
+let oneTimeSteamGuardCode = STEAM_GUARD_CODE_ENV.trim();
 
 function recordEvent(level, message, extra = null) {
   const entry = {
@@ -119,18 +122,12 @@ steamClient.on("loggedOn", () => {
 });
 
 steamClient.on("steamGuard", (_domain, callback, lastCodeWrong) => {
-  if (!SHARED_SECRET) {
-    console.error("[Steam] Steam Guard code required. Set STEAM_BOT_SHARED_SECRET or STEAM_BOT_REFRESH_TOKEN.");
-    process.exit(1);
-  }
-
-  if (lastCodeWrong) {
-    console.warn("[Steam] Steam Guard code was rejected. Waiting 30 seconds before retry.");
-    setTimeout(() => callback(requireOptional("steam-totp", "npm install steam-totp").generateAuthCode(SHARED_SECRET)), 30000);
-    return;
-  }
-
-  callback(requireOptional("steam-totp", "npm install steam-totp").generateAuthCode(SHARED_SECRET));
+  resolveSteamGuardCode(lastCodeWrong)
+    .then((code) => callback(code))
+    .catch((error) => {
+      console.error("[Steam]", error.message);
+      process.exit(1);
+    });
 });
 
 steamClient.on("refreshToken", (refreshToken) => {
@@ -584,13 +581,61 @@ function startWatchdog() {
         disconnectedFor >= GC_STALE_EXIT_MS &&
         (runtime.lastGcReadyAt || runtime.recoveryAttemptsSinceReady >= 2 || runtime.manualRelogAttempts > 0 || runtime.loginAttempts > 1)
       ) {
-        recordEvent("error", `GC stayed unhealthy for ${Math.round(disconnectedFor / 1000)}s. Exiting for a clean Railway restart.`);
+        recordEvent("error", `GC stayed unhealthy for ${Math.round(disconnectedFor / 1000)}s. Exiting for a clean process restart.`);
         persistProfileCache(true);
-        console.error(`[Recovery] GC has been unhealthy for ${Math.round(disconnectedFor / 1000)}s. Exiting so Railway can restart the process.`);
+        console.error(`[Recovery] GC has been unhealthy for ${Math.round(disconnectedFor / 1000)}s. Exiting so the process supervisor can restart it.`);
         process.exit(1);
       }
     }
   }, WATCHDOG_INTERVAL_MS).unref?.();
+}
+
+async function resolveSteamGuardCode(lastCodeWrong) {
+  if (SHARED_SECRET) {
+    if (lastCodeWrong) {
+      console.warn("[Steam] Steam Guard code was rejected. Waiting 30 seconds before retry.");
+      await sleep(30 * 1000);
+    }
+
+    return requireOptional("steam-totp", "npm install steam-totp").generateAuthCode(SHARED_SECRET);
+  }
+
+  if (oneTimeSteamGuardCode && !lastCodeWrong) {
+    const code = oneTimeSteamGuardCode;
+    oneTimeSteamGuardCode = "";
+    recordEvent("info", "Using one-time Steam Guard code from environment.");
+    console.log("[Steam] Using one-time Steam Guard code from environment.");
+    return code;
+  }
+
+  if (process.stdin.isTTY) {
+    const prompt = lastCodeWrong
+      ? "Steam Guard code was rejected. Enter a fresh Steam Guard code: "
+      : "Enter Steam Guard code: ";
+    return promptSteamGuardCode(prompt);
+  }
+
+  throw new Error("Steam Guard code required. Set STEAM_BOT_SHARED_SECRET, STEAM_BOT_REFRESH_TOKEN, or add a one-time STEAM_BOT_GUARD_CODE to server/.env.");
+}
+
+function promptSteamGuardCode(prompt) {
+  return new Promise((resolve, reject) => {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    rl.question(prompt, (answer) => {
+      rl.close();
+      const code = String(answer || "").trim();
+      if (!code) {
+        reject(new Error("No Steam Guard code entered."));
+        return;
+      }
+
+      resolve(code);
+    });
+  });
 }
 
 function shouldForceGameSession() {

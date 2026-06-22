@@ -1,0 +1,33 @@
+services:
+  steam-stats:
+    build:
+      context: ./server
+    container_name: csstats-steam-stats
+    restart: unless-stopped
+    init: true
+    env_file:
+      - ./server/.env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      STEAM_STATE_DIR: /steam-state
+      GC_STALE_EXIT_ENABLED: "true"
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - steam-state:/steam-state
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/readyz').then((res) => process.exit(res.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    stop_grace_period: 20s
+
+volumes:
+  steam-state:

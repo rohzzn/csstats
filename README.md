@@ -30,44 +30,36 @@ Search for **CS2 Recon** or install directly from the store listing.
 3. Click **Load unpacked**
 4. Select this folder
 
-## Game Coordinator server (optional — unlocks stats on every profile)
+## Local Steam stats server
 
-The **CS2 row** requires a small Node.js server. It can run on your machine or on a host like Railway. It connects to the CS2 Game Coordinator using a spare Steam account and exposes an HTTP API the extension calls.
+The **CS2 row** requires a small server on this Mac. It connects to the CS2 Game Coordinator using a spare Steam account and exposes a local HTTP API the extension calls at `http://127.0.0.1:3000`.
 
 ### Prerequisites
 
-- [Node.js 18+](https://nodejs.org/)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/)
 - A **spare / dedicated Steam account** (create a free one) that owns CS2 (free to play). It must **not** be running CS2 anywhere else while the server is active.
 
-### Setup
+### Docker setup
 
 ```bash
-# 1. Install dependencies
-cd server
-npm install
+# 1. Put your Steam bot login in server/.env
+cp -n server/.env.example server/.env
 
-# 2. Create your config file
-copy .env.example .env
-# Edit .env and set STEAM_BOT_USERNAME and STEAM_BOT_PASSWORD
-
-# 3. Start the server
-npm start
+# 2. Start the local service
+docker compose up -d --build
 ```
 
-For Railway:
+The Compose service is named `steam-stats`. It restarts automatically if the process crashes, saves Steam session data and profile cache in a Docker volume, and only exposes the API to this Mac.
 
-- Set the service root to `server/`
-- Set `STEAM_BOT_USERNAME`, `STEAM_BOT_PASSWORD`, and optionally `STEAM_BOT_SHARED_SECRET` as Railway environment variables
-- For the most reliable reconnects, also set `STEAM_BOT_REFRESH_TOKEN` once you have one
-- Attach a Railway volume and set `STEAM_STATE_DIR` to the volume mount path so the refresh token and persisted GC cache survive restarts
-- If your Railway plan allows it, use the `Always` restart policy so an intentional stale-GC exit comes back immediately
-- Do not hardcode Railway's assigned `PORT`; Railway injects it automatically
-- Keep `HOST=0.0.0.0` so Railway can reach the process
-- Point Railway's health check at `/readyz` if you want the platform to treat a lost GC session as unhealthy
+On first run, Steam may email a Steam Guard code. If that happens, put the one-time code in `server/.env` as `STEAM_BOT_GUARD_CODE=12345`, then run:
 
-On first run, Steam may prompt for a Steam Guard code sent to your email. Enter it in the terminal. After that the server remembers the session.
+```bash
+docker compose up -d --force-recreate
+```
 
-If the bot account has a **Mobile Authenticator**, set `STEAM_BOT_SHARED_SECRET` in `.env` and the server will generate TOTP codes automatically (requires `npm install steam-totp`).
+After a successful login, the server saves a refresh token in the Docker volume. You can remove `STEAM_BOT_GUARD_CODE` from `server/.env` after that.
+
+If the bot account has a **Mobile Authenticator**, set `STEAM_BOT_SHARED_SECRET` in `server/.env` and the server will generate codes automatically.
 
 ### How it works
 
@@ -80,11 +72,11 @@ Extension                  Local server (port 3000)        Valve Game Coordinato
    │ ◀── { premier_rating, … } │                                    │
 ```
 
-The server keeps a persistent GC session and processes one request at a time with a 500 ms throttle to respect Valve's rate limits. Fresh responses are cached for 5 minutes, and the server can now persist the last known GC results to disk so hosted deployments can continue serving stale-but-useful data while GC reconnects.
+The server keeps a persistent GC session and processes one request at a time with a 500 ms throttle to respect Valve's rate limits. Fresh responses are cached for 5 minutes, and the server persists the last known GC results to disk so it can continue serving stale-but-useful data while GC reconnects.
 
-If Steam or the GC drops, the server now tries to recover automatically by restoring the Steam session, reasserting `gamesPlayed(730)`, waiting briefly for GC recovery on live requests, serving the last persisted GC result when the live session is unavailable, and on Railway exiting after a long unhealthy period so the platform can restart it cleanly.
+If Steam or the GC drops, the server tries to recover automatically by restoring the Steam session, reasserting `gamesPlayed(730)`, waiting briefly for GC recovery on live requests, serving the last persisted GC result when the live session is unavailable, and exiting after a long unhealthy period so Docker can restart it cleanly.
 
-The extension points at the hosted GC proxy. If that proxy is unavailable, the CS2 row is silently hidden while the other rows keep working.
+The extension points at the local GC proxy. If that proxy is unavailable, the CS2 row is silently hidden while the other rows keep working.
 
 You can verify the server quickly with:
 
@@ -93,23 +85,18 @@ You can verify the server quickly with:
 - `/readyz`
 - `/status`
 
-### Running on startup (optional)
+### Keeping it running
 
-On Windows, create a shortcut to `start_server.bat`:
-
-```bat
-@echo off
-cd /d "%~dp0server"
-node server.js
-```
-
-Or use [PM2](https://pm2.keymetrics.io/) for automatic restarts:
+Use these commands from this folder:
 
 ```bash
-npm install -g pm2
-pm2 start server/server.js --name cs2-recon
-pm2 save && pm2 startup
+docker compose ps
+docker compose logs -f steam-stats
+docker compose restart steam-stats
+docker compose down
 ```
+
+In Docker Desktop settings, enable **Start Docker Desktop when you log in**. With the Compose restart policy, the service will come back when Docker Desktop starts.
 
 ---
 
@@ -123,4 +110,4 @@ pm2 save && pm2 startup
 
 ## Privacy
 
-The extension reads the Steam64 ID from the profile page you are already viewing. That ID is used to look up stats from the services listed above. No data is stored or transmitted anywhere other than those services. GC lookups are sent to your configured proxy server, which may be a hosted deployment such as Railway.
+The extension reads the Steam64 ID from the profile page you are already viewing. That ID is used to look up stats from the services listed above. No data is stored or transmitted anywhere other than those services. GC lookups are sent to the local proxy server running on this Mac.
