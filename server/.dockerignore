@@ -1,0 +1,5 @@
+node_modules
+.steam-state
+.env
+*.log
+npm-debug.log*

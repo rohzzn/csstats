@@ -221,16 +221,28 @@
       (Array.isArray(bundle.providers) ? bundle.providers : []).map((provider) => [provider.id, provider])
     );
 
-    // Merge GC commendations into the Steam row so they appear side-by-side
     const gcProvider    = providerMap.get("gc");
     const steamProvider = providerMap.get("steam");
+    const gcWingmanRanks = gcProvider?.state === "ready" && Array.isArray(gcProvider.wingmanRanks)
+      ? gcProvider.wingmanRanks
+      : [];
+    const gcCompetitiveRanks = gcProvider?.state === "ready" && Array.isArray(gcProvider.competitiveRanks)
+      ? gcProvider.competitiveRanks
+      : [];
+
     if (steamProvider && gcProvider?.state === "ready") {
       providerMap.set("steam", {
         ...steamProvider,
         metrics: mergeSteamMetrics(steamProvider.metrics, gcProvider.levelMetric),
         commendations: Array.isArray(gcProvider.commendations) && gcProvider.commendations.length
           ? gcProvider.commendations
-          : Array.isArray(steamProvider.commendations) ? steamProvider.commendations : []
+          : Array.isArray(steamProvider.commendations) ? steamProvider.commendations : [],
+        wingmanRanks: gcCompetitiveRanks.length
+          ? mergeRankLists(gcWingmanRanks, steamProvider.wingmanRanks)
+          : [],
+        competitiveRanks: gcCompetitiveRanks.length
+          ? gcCompetitiveRanks
+          : Array.isArray(steamProvider.competitiveRanks) ? steamProvider.competitiveRanks : []
       });
     }
 
@@ -238,6 +250,19 @@
     const leetifyProvider = providerMap.get("leetify");
     if (leetifyProvider?.state === "ready" && faceitProvider?.state === "ready") {
       providerMap.set("leetify", mergeLeetifyWithFaceit(leetifyProvider, faceitProvider));
+    }
+
+    const mergedLeetifyProvider = providerMap.get("leetify");
+    if (
+      gcWingmanRanks.length &&
+      mergedLeetifyProvider?.state === "ready" &&
+      Array.isArray(mergedLeetifyProvider.competitiveRanks) &&
+      mergedLeetifyProvider.competitiveRanks.length
+    ) {
+      providerMap.set("leetify", {
+        ...mergedLeetifyProvider,
+        wingmanRanks: mergeRankLists(gcWingmanRanks, mergedLeetifyProvider.wingmanRanks)
+      });
     }
 
     const providers = DISPLAY_ORDER
@@ -786,6 +811,27 @@
 
     base.push(levelMetric);
     return base;
+  }
+
+  function mergeRankLists(primaryRanks, secondaryRanks) {
+    const merged = [];
+    const seen = new Set();
+
+    for (const rank of [...(Array.isArray(primaryRanks) ? primaryRanks : []), ...(Array.isArray(secondaryRanks) ? secondaryRanks : [])]) {
+      if (!rank || typeof rank !== "object") {
+        continue;
+      }
+
+      const key = `${rank.mapName || ""}:${rank.rankLabel || ""}:${rank.image || ""}`;
+      if (seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      merged.push(rank);
+    }
+
+    return merged;
   }
 
   function mergeLeetifyWithFaceit(leetifyProvider, faceitProvider) {

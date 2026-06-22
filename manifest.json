@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "CS Stats",
   "short_name": "CS Stats",
-  "version": "1.1.2",
+  "version": "1.1.5",
   "description": "CS2 stats on every Steam profile — FACEIT rank, CS Rating, Leetify ratings, commendations, friend code and AllStar clips.",
   "permissions": [
     "storage"
@@ -13,7 +13,8 @@
     "https://open.faceit.com/*",
     "https://csstats.gg/*",
     "https://api.steampowered.com/*",
-    "https://csstats-production.up.railway.app/*",
+    "http://127.0.0.1/*",
+    "http://localhost/*",
     "https://a1.allstar.gg/*"
   ],
   "background": {
