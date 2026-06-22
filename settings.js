@@ -12,10 +12,10 @@
 
   function normalizeUserSettings(raw = {}) {
     return {
-      showMedals: raw.showMedals !== false,
+      showMedals: true,
       showPeakPremier: raw.showPeakPremier !== false,
-      showCompetitiveRanks: raw.showCompetitiveRanks !== false,
-      showMatches: raw.showMatches !== false,
+      showCompetitiveRanks: true,
+      showMatches: true,
       matchesToShow: [5, 10, 15].includes(Number(raw.matchesToShow)) ? Number(raw.matchesToShow) : 10,
       showClips: raw.showClips !== false
     };

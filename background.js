@@ -84,12 +84,8 @@ function applyUserSettingsToProviders(providers, userSettings) {
     const nextProvider = {
       ...provider,
       metrics: applyPremierPreferenceToMetrics(provider.metrics, userSettings.showPeakPremier),
-      competitiveRanks: userSettings.showCompetitiveRanks
-        ? (Array.isArray(provider.competitiveRanks) ? provider.competitiveRanks : [])
-        : [],
-      wingmanRanks: userSettings.showCompetitiveRanks
-        ? (Array.isArray(provider.wingmanRanks) ? provider.wingmanRanks : [])
-        : []
+      competitiveRanks: Array.isArray(provider.competitiveRanks) ? provider.competitiveRanks : [],
+      wingmanRanks: Array.isArray(provider.wingmanRanks) ? provider.wingmanRanks : []
     };
 
     if (provider.id === "leetify" && Array.isArray(provider.matches)) {

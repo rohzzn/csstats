@@ -129,15 +129,18 @@
     if (!context.target.contains(root)) {
       context.target.prepend(root);
     }
+    bindStatsRoot(root);
 
     const matchesRoot = ensureRoot(MATCHES_ID);
     state.matchesRoot = matchesRoot;
     root.insertAdjacentElement("afterend", matchesRoot);
+    bindMatchesRoot(matchesRoot);
 
     // Clips section goes directly after the matches section
     const clipsRoot = ensureRoot(CLIPS_ID);
     state.clipsRoot = clipsRoot;
     matchesRoot.insertAdjacentElement("afterend", clipsRoot);
+    bindClipsRoot(clipsRoot);
 
     matchesRoot.innerHTML = "";
     clipsRoot.innerHTML = "";
@@ -216,6 +219,74 @@
     `;
   }
 
+  function bindStatsRoot(root) {
+    if (!root || root.dataset.spxStatsBound === "1") return;
+    root.dataset.spxStatsBound = "1";
+
+    root.addEventListener("click", (event) => {
+      const target = event.target.closest("[data-spx-premier-toggle]");
+      if (!target || !root.contains(target)) return;
+
+      event.preventDefault();
+      togglePremierPreference();
+    });
+
+    root.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      const target = event.target.closest("[data-spx-premier-toggle]");
+      if (!target || !root.contains(target)) return;
+
+      event.preventDefault();
+      togglePremierPreference();
+    });
+  }
+
+  function bindMatchesRoot(root) {
+    if (!root || root.dataset.spxMatchesBound === "1") return;
+    root.dataset.spxMatchesBound = "1";
+    root.addEventListener("change", handleInlineSettingChange);
+  }
+
+  function bindClipsRoot(root) {
+    if (!root || root.dataset.spxClipsBound === "1") return;
+    root.dataset.spxClipsBound = "1";
+    root.addEventListener("change", handleInlineSettingChange);
+  }
+
+  function togglePremierPreference() {
+    const settings = resolveUserSettings();
+    writeInlineSettings({ showPeakPremier: !settings.showPeakPremier });
+  }
+
+  function handleInlineSettingChange(event) {
+    const input = event.target;
+    if (!(input instanceof HTMLInputElement)) return;
+
+    const key = input.dataset.spxSetting;
+    if (!SPX_isUserSettingKey(key)) return;
+
+    const partial = {};
+    partial[key] = input.type === "radio" ? Number(input.value) : input.checked;
+    writeInlineSettings(partial);
+  }
+
+  async function writeInlineSettings(partial) {
+    const nextSettings = SPX_normalizeUserSettings({ ...state.settings, ...partial });
+    state.settings = nextSettings;
+
+    try {
+      state.settings = await SPX_writeUserSettings(partial);
+      if (state.steamId && state.profileUrl) {
+        loadBundle({
+          steamId: state.steamId,
+          profileUrl: state.profileUrl
+        });
+      }
+    } catch (error) {
+      console.warn("[Steam CS2 Profile Intel] Could not save profile settings:", error.message || error);
+    }
+  }
+
   function renderBundle(root, bundle) {
     const providerMap = new Map(
       (Array.isArray(bundle.providers) ? bundle.providers : []).map((provider) => [provider.id, provider])
@@ -277,7 +348,14 @@
       });
 
     if (!providers.length) {
-      root.innerHTML = "";
+      root.innerHTML = `
+        <div class="profile_customization_header spx-showcase-header">Stats</div>
+        <div class="profile_customization_block">
+          <div class="showcase_content_bg spx-shell">
+            <div class="spx-inline-note">No stats visible right now.</div>
+          </div>
+        </div>
+      `;
       return;
     }
 
@@ -292,12 +370,6 @@
   }
 
   function renderHeaderMedals(bundle = null) {
-    const settings = resolveUserSettings(bundle);
-    if (!settings.showMedals) {
-      clearHeaderMedals();
-      return;
-    }
-
     const medals = bundle ? getGcMedals(bundle) : state.headerMedals;
     const target = resolveHeaderMedalTarget();
     let root = document.getElementById(HEADER_MEDALS_ID);
@@ -372,11 +444,6 @@
   function renderClipsSection(root, bundle) {
     if (!root) return;
     const settings = resolveUserSettings(bundle);
-    if (!settings.showClips) {
-      root.innerHTML = "";
-      return;
-    }
-
     const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
     const allstar = providers.find((p) => p.id === "allstar");
     const clips = (allstar?.state === "ready" && Array.isArray(allstar.clips)) ? allstar.clips : [];
@@ -387,14 +454,19 @@
     }
 
     root.innerHTML = `
-      <div class="profile_customization_header spx-showcase-header">Clips</div>
-      <div class="profile_customization_block">
-        <div class="showcase_content_bg spx-shell">
-          <div class="spx-clips-grid">
-            ${clips.map(renderClipThumb).join("")}
+      <div class="profile_customization_header spx-showcase-header spx-section-header">
+        <span>Clips</span>
+        ${renderHeaderSwitch("showClips", settings.showClips, "Show clips")}
+      </div>
+      ${settings.showClips ? `
+        <div class="profile_customization_block">
+          <div class="showcase_content_bg spx-shell">
+            <div class="spx-clips-grid">
+              ${clips.map(renderClipThumb).join("")}
+            </div>
           </div>
         </div>
-      </div>
+      ` : ""}
     `;
 
     // Wire up click-to-play
@@ -413,11 +485,6 @@
   function renderMatchesSection(root, bundle) {
     if (!root) return;
     const settings = resolveUserSettings(bundle);
-    if (!settings.showMatches) {
-      root.innerHTML = "";
-      return;
-    }
-
     const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
     const leetify = providers.find((provider) => provider.id === "leetify");
     const matches = (leetify?.state === "ready" && Array.isArray(leetify.matches))
@@ -430,7 +497,10 @@
     }
 
     root.innerHTML = `
-      <div class="profile_customization_header spx-showcase-header">Matches</div>
+      <div class="profile_customization_header spx-showcase-header spx-section-header">
+        <span>Matches</span>
+        ${renderMatchesCountControl(settings)}
+      </div>
       <div class="profile_customization_block">
         <div class="showcase_content_bg spx-shell">
           <div class="spx-matches-grid">
@@ -438,6 +508,31 @@
           </div>
         </div>
       </div>
+    `;
+  }
+
+  function renderMatchesCountControl(settingsInput) {
+    const settings = SPX_normalizeUserSettings(settingsInput);
+    return `
+      <span class="spx-section-controls spx-match-count-controls" role="radiogroup" aria-label="Matches to show">
+        ${[5, 10, 15].map((value, index) => `
+          <label class="spx-match-count-option">
+            <input type="radio" name="spxMatchesToShow" data-spx-setting="matchesToShow" value="${value}" aria-label="${escapeAttribute(`Show ${value} matches`)}" ${settings.matchesToShow === value ? "checked" : ""} />
+            <span class="spx-match-count-dot spx-match-count-dot-${index + 1}" aria-hidden="true"></span>
+          </label>
+        `).join("")}
+      </span>
+    `;
+  }
+
+  function renderHeaderSwitch(key, checked, label) {
+    return `
+      <span class="spx-section-controls">
+        <label class="spx-section-switch">
+          <input type="checkbox" data-spx-setting="${escapeAttribute(key)}" aria-label="${escapeAttribute(label)}" ${checked ? "checked" : ""} />
+          <span class="spx-section-switch-ui" aria-hidden="true"></span>
+        </label>
+      </span>
     `;
   }
 
@@ -758,15 +853,12 @@
     const rawNum = parseInt(String(metric.value || "").replace(/,/g, ""), 10);
     const tier = getPremierTier(rawNum);
     const badgeAsset = getPremierBadgeAsset(rawNum);
-    const tooltip = metric.tooltip || metric.label;
-    const tooltipClass = metric.tooltip ? " spx-tooltip-anchor" : "";
-    const tooltipAttributes = metric.tooltip
-      ? ` title="${escapeAttribute(tooltip)}" data-tooltip="${escapeAttribute(tooltip)}"`
-      : ` title="${escapeAttribute(tooltip)}"`;
+    const settings = resolveUserSettings();
+    const toggleLabel = settings.showPeakPremier ? "Show current Premier" : "Show peak Premier";
     const badgeStyle = badgeAsset ? ` style="background-image: url('${badgeAsset}');"` : "";
 
     return `
-      <div class="spx-metric spx-metric-premier spx-premier-${tier}${tooltipClass}"${tooltipAttributes}>
+      <div class="spx-metric spx-metric-premier spx-premier-${tier}" data-spx-premier-toggle="1" role="button" tabindex="0" aria-label="${escapeAttribute(toggleLabel)}">
         <div class="spx-premier-badge"${badgeStyle}>
           <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
         </div>
