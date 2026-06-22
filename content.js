@@ -210,13 +210,16 @@
       <div class="profile_customization_header spx-showcase-header">Stats</div>
       <div class="profile_customization_block">
         <div class="showcase_content_bg spx-shell">
+          ${renderProfileSettings(resolveUserSettings())}
           <div class="spx-inline-note">${escapeHtml(message)}</div>
         </div>
       </div>
     `;
+    bindProfileSettings(root);
   }
 
   function renderBundle(root, bundle) {
+    const settings = resolveUserSettings(bundle);
     const providerMap = new Map(
       (Array.isArray(bundle.providers) ? bundle.providers : []).map((provider) => [provider.id, provider])
     );
@@ -277,7 +280,16 @@
       });
 
     if (!providers.length) {
-      root.innerHTML = "";
+      root.innerHTML = `
+        <div class="profile_customization_header spx-showcase-header">Stats</div>
+        <div class="profile_customization_block">
+          <div class="showcase_content_bg spx-shell">
+            ${renderProfileSettings(settings)}
+            <div class="spx-inline-note">No stats visible right now.</div>
+          </div>
+        </div>
+      `;
+      bindProfileSettings(root);
       return;
     }
 
@@ -285,10 +297,97 @@
       <div class="profile_customization_header spx-showcase-header">Stats</div>
       <div class="profile_customization_block">
         <div class="showcase_content_bg spx-shell">
+          ${renderProfileSettings(settings)}
           <div class="spx-row-list">${providers.map((provider) => renderProviderRow(provider)).join("")}</div>
         </div>
       </div>
     `;
+    bindProfileSettings(root);
+  }
+
+  function renderProfileSettings(settingsInput) {
+    const settings = SPX_normalizeUserSettings(settingsInput);
+    const toggle = (key, label) => `
+      <label class="spx-profile-setting-pill${settings[key] ? " is-active" : ""}">
+        <input type="checkbox" data-spx-setting="${escapeAttribute(key)}" ${settings[key] ? "checked" : ""} />
+        <span>${escapeHtml(label)}</span>
+      </label>
+    `;
+
+    const matchCount = (value) => `
+      <label class="spx-profile-count-pill${settings.matchesToShow === value ? " is-active" : ""}">
+        <input type="radio" name="spxMatchesToShow" data-spx-setting="matchesToShow" value="${value}" ${settings.matchesToShow === value ? "checked" : ""} ${settings.showMatches ? "" : "disabled"} />
+        <span>${value}</span>
+      </label>
+    `;
+
+    return `
+      <div class="spx-profile-settings" data-spx-profile-settings>
+        <span class="spx-profile-settings-title">Display</span>
+        ${toggle("showMedals", "Medals")}
+        ${toggle("showPeakPremier", "Peak")}
+        ${toggle("showCompetitiveRanks", "Ranks")}
+        <span class="spx-profile-match-settings${settings.showMatches ? "" : " is-disabled"}">
+          ${toggle("showMatches", "Matches")}
+          <span class="spx-profile-counts" role="radiogroup" aria-label="Matches to show">
+            ${matchCount(5)}
+            ${matchCount(10)}
+            ${matchCount(15)}
+          </span>
+        </span>
+        ${toggle("showClips", "Clips")}
+      </div>
+    `;
+  }
+
+  function bindProfileSettings(root) {
+    const settingsRoot = root.querySelector("[data-spx-profile-settings]");
+    if (!settingsRoot) return;
+
+    settingsRoot.addEventListener("change", async (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement)) return;
+
+      const key = input.dataset.spxSetting;
+      if (!SPX_isUserSettingKey(key)) return;
+
+      const partial = {};
+      partial[key] = input.type === "radio" ? Number(input.value) : input.checked;
+      const nextSettings = SPX_normalizeUserSettings({ ...state.settings, ...partial });
+
+      state.settings = nextSettings;
+      updateProfileSettingsControls(settingsRoot, nextSettings);
+
+      try {
+        settingsRoot.classList.add("is-saving");
+        state.settings = await SPX_writeUserSettings(partial);
+      } catch (error) {
+        settingsRoot.classList.add("is-error");
+        console.warn("[Steam CS2 Profile Intel] Could not save profile settings:", error.message || error);
+      } finally {
+        settingsRoot.classList.remove("is-saving");
+      }
+    });
+  }
+
+  function updateProfileSettingsControls(settingsRoot, settingsInput) {
+    const settings = SPX_normalizeUserSettings(settingsInput);
+    const matchGroup = settingsRoot.querySelector(".spx-profile-match-settings");
+    if (matchGroup) {
+      matchGroup.classList.toggle("is-disabled", !settings.showMatches);
+    }
+
+    settingsRoot.querySelectorAll("input[data-spx-setting]").forEach((input) => {
+      const key = input.dataset.spxSetting;
+      if (input.type === "radio") {
+        input.checked = Number(input.value) === settings.matchesToShow;
+        input.disabled = !settings.showMatches;
+      } else {
+        input.checked = Boolean(settings[key]);
+      }
+
+      input.closest("label")?.classList.toggle("is-active", input.checked);
+    });
   }
 
   function renderHeaderMedals(bundle = null) {
