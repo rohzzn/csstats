@@ -1304,10 +1304,10 @@ async function fetchAllstarData(steamId, settings) {
       return makeProviderResult("allstar", "not_found", {});
     }
 
-    // Step 2: fetch their recent CS2 clips
+    // Step 2: fetch their best-rated CS2 clips (Allstar's own "Best" ranking)
     const clipsRes = await postJson(GRAPHQL, {
       query: `query($page:Int!,$user:String!,$game:Int){
-        videos:clips(search:createdDate,page:$page,user:$user,mobile:false,game:$game){
+        videos:clips(search:best,page:$page,user:$user,mobile:false,game:$game){
           data{ _id clipTitle clipImageThumb clipLink views createdDate }
         }
       }`,

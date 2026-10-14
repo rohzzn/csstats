@@ -1155,15 +1155,6 @@
   transform: scale(1.06);
 }
 
-#spx-cs2-clips-intel .spx-clip-video {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 4px;
-  background: #000000;
-  aspect-ratio: 16 / 9;
-}
-
 #spx-cs2-clips-intel .spx-clip-caption {
   min-width: 0;
   padding: 0 1px;
@@ -1180,6 +1171,172 @@
   color: #dde4ec;
 }
 
+/* ══════════════════════════════════════════════════
+   Clip player  (#spx-clip-player, body level)
+   ══════════════════════════════════════════════════ */
+
+#spx-clip-player {
+  position: fixed;
+  inset: 0;
+  z-index: 2147482000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  font-family: "Motiva Sans", Arial, Helvetica, sans-serif;
+  color: #dde4ec;
+}
+
+#spx-clip-player[hidden] {
+  display: none;
+}
+
+#spx-clip-player .spx-player-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(5, 8, 12, 0.86);
+  backdrop-filter: blur(3px);
+  cursor: zoom-out;
+}
+
+#spx-clip-player .spx-player-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, 100%, calc((100vh - 120px) * 16 / 9));
+  border-radius: 6px;
+  overflow: hidden;
+  background: #171a21;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 30px 90px rgba(0, 0, 0, 0.65);
+}
+
+#spx-clip-player .spx-player-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 6px 0 16px;
+  background: linear-gradient(90deg, rgba(47, 137, 188, 0.28) 0%, rgba(23, 26, 33, 0) 70%);
+}
+
+#spx-clip-player .spx-player-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 500;
+  color: #ffffff;
+}
+
+#spx-clip-player .spx-player-count {
+  flex: 0 0 auto;
+  margin-right: 6px;
+  font-size: 12px;
+  color: #8f98a0;
+  font-variant-numeric: tabular-nums;
+}
+
+#spx-clip-player .spx-player-btn,
+#spx-clip-player .spx-player-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #c6d4df;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+#spx-clip-player .spx-player-btn {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+}
+
+#spx-clip-player .spx-player-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+#spx-clip-player .spx-player-stage {
+  position: relative;
+  background: #000000;
+  aspect-ratio: 16 / 9;
+}
+
+#spx-clip-player .spx-player-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #000000;
+}
+
+#spx-clip-player .spx-player-nav {
+  position: absolute;
+  top: 50%;
+  width: 40px;
+  height: 64px;
+  margin-top: -32px;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.85);
+  opacity: 0;
+}
+
+#spx-clip-player .spx-player-nav[hidden] {
+  display: none;
+}
+
+#spx-clip-player .spx-player-prev { left: 10px; }
+#spx-clip-player .spx-player-next { right: 10px; }
+
+#spx-clip-player .spx-player-stage:hover .spx-player-nav,
+#spx-clip-player .spx-player-nav:focus-visible {
+  opacity: 1;
+}
+
+#spx-clip-player .spx-player-nav:hover {
+  background: rgba(0, 0, 0, 0.7);
+  color: #ffffff;
+}
+
+#spx-clip-player .spx-player-nav svg {
+  width: 20px;
+  height: 20px;
+}
+
+#spx-clip-player .spx-player-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.82);
+  font-size: 14px;
+  color: #c6d4df;
+  text-align: center;
+}
+
+#spx-clip-player .spx-player-error[hidden] {
+  display: none;
+}
+
+#spx-clip-player .spx-player-error a {
+  color: #66c0f4;
+}
+
+#spx-clip-player :focus-visible {
+  outline: 2px solid #66c0f4;
+  outline-offset: -2px;
+}
+
 /* ── Motion ───────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1191,6 +1348,8 @@
   #spx-cs2-profile-intel .spx-premier-badge,
   #spx-cs2-clips-intel .spx-clip-thumb,
   #spx-cs2-clips-intel .spx-clip-play,
+  #spx-clip-player .spx-player-btn,
+  #spx-clip-player .spx-player-nav,
   .profile_header .spx-header-medal-nav {
     transition: none;
   }

@@ -41,7 +41,7 @@ HOW GOOD ARE THEY?
 
 WHAT HAVE THEY BEEN PLAYING?
 • Their last 10 matches with map, mode, score and K-D, coloured by result
-• Their Allstar clips, playable right on the profile
+• Their best-rated Allstar clips: click one to watch it big or full screen, and flip through the rest
 
 FEELS LIKE PART OF STEAM
 • Matches every Steam profile theme and works at any window size
@@ -67,7 +67,8 @@ CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT or Allstar.
 • New stats: time to damage, utility, account age and total matches across all modes
 • Peak or current FACEIT ELO, one click to switch (just like Premier)
 • Redesigned Stats panel that lines up neatly at every screen size
-• Last 10 matches now show map names; clips always show when a player has them
+• Last 10 matches now show map names
+• Clips: the player's best-rated Allstar clips, in a big player with one-click full screen
 • Leetify stats and matches load again (moved to Leetify's new public API)
 • Much smaller download: about 23 MB, down from over 140 MB
 ```

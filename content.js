@@ -4,6 +4,7 @@
   const CLIPS_ID = "spx-cs2-clips-intel";
   const HEADER_MEDALS_ID = "spx-cs2-header-medals";
   const TOOLTIP_ID = "spx-tooltip";
+  const PLAYER_ID = "spx-clip-player";
   const ROOT_SELECTOR = `#${ROOT_ID}, #${MATCHES_ID}, #${CLIPS_ID}, #${HEADER_MEDALS_ID}`;
   const DEFAULT_ERROR = "The extension could not load provider data.";
   const MATCH_LIMIT = 10;
@@ -34,6 +35,8 @@
   });
   const MAP_GLYPH = `<svg class="spx-map-glyph" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M9 4.5 3.5 6.6v12.9L9 17.4l6 2.1 5.5-2.1V4.5L15 6.6 9 4.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 4.5v12.9M15 6.6v12.9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
   const PLAY_GLYPH = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M8.5 5.8v12.4a.6.6 0 0 0 .9.5l9.7-6.2a.6.6 0 0 0 0-1L9.4 5.3a.6.6 0 0 0-.9.5Z" fill="currentColor"/></svg>`;
+  const FULLSCREEN_GLYPH = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+  const CLOSE_GLYPH = `<svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>`;
   const CHEVRON_GLYPHS = Object.freeze({
     previous: `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
     next: `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
@@ -49,7 +52,9 @@
     loadToken: 0,
     html: new Map(),
     medals: { list: [], key: "", start: 0, count: 0, slots: [], listBudget: 0, signature: "", observer: null },
-    tooltipAnchor: null
+    tooltipAnchor: null,
+    clips: [],
+    player: { open: false, list: [], index: 0, opener: null, scroll: "" }
   };
 
   let resizeQueued = false;
@@ -846,10 +851,11 @@
       return "";
     }
 
+    state.clips = clips;
     return renderShell("Clips", `<div class="spx-clips-grid" data-count="${clips.length}">${clips.map(renderClipCard).join("")}</div>`);
   }
 
-  function renderClipCard(clip) {
+  function renderClipCard(clip, index) {
     const title = String(clip.title || "CS2 Clip");
     const url = /^https:\/\//i.test(String(clip.url || "")) ? clip.url : "";
     const media = `
@@ -857,7 +863,7 @@
       <span class="spx-clip-play" aria-hidden="true">${PLAY_GLYPH}</span>
     `;
     const mediaControl = clip.video
-      ? `<button type="button" class="spx-clip-media" data-spx-clip-video="${escapeAttribute(clip.video)}" data-spx-clip-url="${escapeAttribute(url)}" data-spx-clip-poster="${escapeAttribute(clip.thumbnail)}" aria-label="${escapeAttribute(`Play clip: ${title}`)}">${media}</button>`
+      ? `<button type="button" class="spx-clip-media" data-spx-clip-index="${index}" aria-haspopup="dialog" aria-label="${escapeAttribute(`Play clip: ${title}`)}">${media}</button>`
       : url
         ? `<a class="spx-clip-media" href="${escapeAttribute(url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttribute(`Open clip on Allstar: ${title}`)}">${media}</a>`
         : `<div class="spx-clip-media">${media}</div>`;
@@ -873,51 +879,181 @@
   }
 
   function handleClipsClick(event) {
-    const button = event.target.closest("[data-spx-clip-video]");
+    const button = event.target.closest("[data-spx-clip-index]");
     if (!button || !state.clipsRoot.contains(button)) return;
 
     event.preventDefault();
-    playClip(button);
+    openClipPlayer(Number(button.dataset.spxClipIndex), button);
   }
 
-  function playClip(button) {
-    const video = document.createElement("video");
-    video.className = "spx-clip-video";
-    video.width = 320;
-    video.height = 180;
-    video.poster = button.dataset.spxClipPoster || "";
-    video.controls = true;
-    video.autoplay = true;
-    video.playsInline = true;
-    video.preload = "metadata";
-    video.setAttribute("aria-label", button.getAttribute("aria-label") || "Clip");
+  // ── Clip player (lightbox) ────────────────────────
 
-    video.addEventListener("play", () => pauseOtherClips(video));
-    video.addEventListener("error", () => {
-      if (!video.isConnected) return;
-      const hadFocus = document.activeElement === video;
-      video.replaceWith(button);
-      if (hadFocus) {
-        button.focus({ preventScroll: true });
-      }
-      if (button.dataset.spxClipUrl) {
-        window.open(button.dataset.spxClipUrl, "_blank", "noopener");
-      }
-    }, { once: true });
+  function openClipPlayer(index, opener) {
+    const playable = state.clips.filter((clip) => clip.video);
+    const start = playable.indexOf(state.clips[index]);
+    if (start < 0) return;
+
+    const player = ensureClipPlayer();
+    state.player.list = playable;
+    state.player.opener = opener || null;
+    if (!state.player.open) {
+      state.player.open = true;
+      state.player.scroll = document.documentElement.style.overflow;
+      document.documentElement.style.overflow = "hidden";
+      player.root.hidden = false;
+      document.addEventListener("keydown", handlePlayerKeys, true);
+    }
 
     hideTooltip();
-    button.replaceWith(video);
-    video.src = button.dataset.spxClipVideo;
-    video.focus({ preventScroll: true });
-    pauseOtherClips(video);
+    showClipInPlayer(start);
+    player.close.focus({ preventScroll: true });
   }
 
-  function pauseOtherClips(current) {
-    state.clipsRoot?.querySelectorAll("video").forEach((video) => {
-      if (video !== current && !video.paused) {
-        video.pause();
-      }
+  function ensureClipPlayer() {
+    if (state.player.root?.isConnected) {
+      return state.player;
+    }
+
+    const root = document.createElement("div");
+    root.id = PLAYER_ID;
+    root.hidden = true;
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.setAttribute("aria-label", "Clip player");
+    root.innerHTML = `
+      <div class="spx-player-backdrop" data-spx-player="close"></div>
+      <div class="spx-player-panel">
+        <div class="spx-player-bar">
+          <div class="spx-player-title"></div>
+          <div class="spx-player-count" aria-live="polite"></div>
+          <button type="button" class="spx-player-btn" data-spx-player="fullscreen" aria-label="Full screen (F)" title="Full screen (F)">${FULLSCREEN_GLYPH}</button>
+          <button type="button" class="spx-player-btn" data-spx-player="close" aria-label="Close (Esc)" title="Close (Esc)">${CLOSE_GLYPH}</button>
+        </div>
+        <div class="spx-player-stage">
+          <video class="spx-player-video" controls playsinline preload="auto"></video>
+          <div class="spx-player-error" hidden>This clip couldn't be played here. <a target="_blank" rel="noopener noreferrer">Open it on Allstar</a></div>
+          <button type="button" class="spx-player-nav spx-player-prev" data-spx-player="prev" aria-label="Previous clip (Left arrow)">${CHEVRON_GLYPHS.previous}</button>
+          <button type="button" class="spx-player-nav spx-player-next" data-spx-player="next" aria-label="Next clip (Right arrow)">${CHEVRON_GLYPHS.next}</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(root);
+
+    const video = root.querySelector("video");
+    video.addEventListener("error", () => {
+      if (!video.getAttribute("src")) return;
+      root.querySelector(".spx-player-error").hidden = false;
     });
+    root.addEventListener("click", (event) => {
+      const action = event.target.closest("[data-spx-player]")?.dataset.spxPlayer;
+      if (action === "close") closeClipPlayer();
+      else if (action === "prev") stepClipPlayer(-1);
+      else if (action === "next") stepClipPlayer(1);
+      else if (action === "fullscreen") toggleClipFullscreen();
+    });
+
+    state.player = {
+      ...state.player,
+      root,
+      video,
+      title: root.querySelector(".spx-player-title"),
+      count: root.querySelector(".spx-player-count"),
+      error: root.querySelector(".spx-player-error"),
+      close: root.querySelector('[data-spx-player="close"].spx-player-btn'),
+      prev: root.querySelector('[data-spx-player="prev"]'),
+      next: root.querySelector('[data-spx-player="next"]')
+    };
+    return state.player;
+  }
+
+  function showClipInPlayer(index) {
+    const player = state.player;
+    const list = player.list;
+    const clip = list[index];
+    if (!clip) return;
+
+    player.index = index;
+    player.title.textContent = String(clip.title || "CS2 Clip");
+    player.count.textContent = list.length > 1 ? `${index + 1} / ${list.length}` : "";
+    player.prev.hidden = list.length < 2;
+    player.next.hidden = list.length < 2;
+    player.error.hidden = true;
+    const link = player.error.querySelector("a");
+    if (/^https:\/\//i.test(String(clip.url || ""))) link.href = clip.url;
+    else link.removeAttribute("href");
+
+    player.video.poster = clip.thumbnail || "";
+    player.video.src = clip.video;
+    player.video.play().catch(() => {});
+  }
+
+  function stepClipPlayer(direction) {
+    const count = state.player.list.length;
+    if (count < 2) return;
+    showClipInPlayer((state.player.index + direction + count) % count);
+  }
+
+  function toggleClipFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+      return;
+    }
+    state.player.video?.requestFullscreen?.().catch(() => {});
+  }
+
+  function closeClipPlayer() {
+    const player = state.player;
+    if (!player.open) return;
+
+    player.open = false;
+    if (document.fullscreenElement) {
+      document.exitFullscreen().catch(() => {});
+    }
+    player.video.pause();
+    player.video.removeAttribute("src");
+    player.video.load();
+    player.root.hidden = true;
+    document.documentElement.style.overflow = player.scroll || "";
+    document.removeEventListener("keydown", handlePlayerKeys, true);
+    if (player.opener?.isConnected) {
+      player.opener.focus({ preventScroll: true });
+    }
+  }
+
+  function handlePlayerKeys(event) {
+    if (!state.player.open || event.altKey || event.ctrlKey || event.metaKey) return;
+
+    // While the browser is in fullscreen, let it handle Escape itself.
+    if (event.key === "Escape" && !document.fullscreenElement) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeClipPlayer();
+    } else if ((event.key === "f" || event.key === "F") && !event.repeat) {
+      event.preventDefault();
+      toggleClipFullscreen();
+    } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && document.activeElement !== state.player.video) {
+      // Arrow keys seek when the video itself has focus; otherwise they switch clips.
+      event.preventDefault();
+      stepClipPlayer(event.key === "ArrowLeft" ? -1 : 1);
+    } else if (event.key === "Tab") {
+      trapPlayerFocus(event);
+    }
+  }
+
+  function trapPlayerFocus(event) {
+    const focusable = [...state.player.root.querySelectorAll("button:not([hidden]), video, a[href]")]
+      .filter((element) => element.offsetParent !== null);
+    if (!focusable.length) return;
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   // ── Header medals ─────────────────────────────────

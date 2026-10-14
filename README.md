@@ -20,7 +20,7 @@ Every Steam profile gets a **Stats** showcase, a **Matches** showcase (when Leet
 - **Total Matches** counts everything: Premier, Competitive, Wingman and FACEIT. If Leetify doesn't import the player's FACEIT games, FACEIT lifetime matches are added to Leetify's total; if it does, the larger of the two counts is shown so nothing is counted twice. Hover for the breakdown.
 - **Account Age** comes from the Steam account creation date (hidden when the profile is private).
 - **Matches** always shows the past **10** matches: map, mode, score and K-D. The coloured edge and score show the result (green win, red loss, grey draw).
-- **Clips** shows the player's Allstar clips whenever there are any, playable in place.
+- **Clips** shows the player's 8 best-rated Allstar clips (Allstar's own "Best" ranking). Click one to watch it in a large player: full screen with the button or **F**, switch clips with the arrows or **← →**, close with **Esc**.
 - **Header medals** (CS2 coins, pins, service medals and trophies) sit next to the persona name and page with arrows when they don't all fit. Premier season medals are shown in the Steam row instead, not here.
 
 ### Cheating verdict
@@ -131,7 +131,7 @@ This validates the manifest, assets and syntax, then writes `dist/cs-stats-<vers
 - **Leetify public API** (`api-public.cs-prod.leetify.com/v3`, no key needed): Premier, Wingman and per-map competitive ranks, Aim and Utility ratings, time to damage, preaim and accuracy stats, win rate, total matches, recent matches and per-match K/D.
 - **FACEIT Data API** (API key bundled): level, ELO, lifetime matches, K/D and HS%. Shown alongside the Leetify row. Peak ELO comes from FACEIT's public match-history feed on faceit.com.
 - **Steam Web API** (API key bundled): account creation date and VAC / game ban status.
-- **Allstar**: the player's CS2 clips.
+- **Allstar**: the player's best-rated CS2 clips.
 - **CS2 Game Coordinator** (optional, via the local server above): CS level, commendations and medals, queried directly from Valve's servers.
 
 CSStats (csstats.gg) is no longer used.
