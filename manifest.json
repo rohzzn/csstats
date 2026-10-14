@@ -4,7 +4,7 @@
   "short_name": "CS Stats",
   "version": "1.2.0",
   "minimum_chrome_version": "111",
-  "description": "CS2 stats on every Steam profile: Premier & FACEIT ratings, Leetify stats, a cheating verdict, recent matches, medals and clips.",
+  "description": "Is this CS2 player any good, or cheating? See Premier, FACEIT ELO, a cheat verdict and recent matches on every Steam profile.",
   "permissions": [
     "storage"
   ],

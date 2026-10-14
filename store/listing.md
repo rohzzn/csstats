@@ -16,38 +16,61 @@ Package: `dist/cs-stats-1.2.0.zip` (build with `python tools/build-zip.py`)
 
 ## Summary (132 characters max)
 
-CS2 stats on every Steam profile: Premier & FACEIT ratings, Leetify stats, a cheating verdict, recent matches, medals and clips.
+Is this CS2 player any good, or cheating? See Premier, FACEIT ELO, a cheat verdict and recent matches on every Steam profile.
 
 ## Description
 
-CS Stats puts a player's CS2 stats right on their Steam profile, drawn in Steam's own showcase style so it looks like part of the page.
+The Web Store shows this as plain text. Paste it as-is: the line breaks and • bullets carry through.
 
-**Stats showcase**
-• Commendations and Premier season medals (newest season first)
-• A cheating verdict (Legit, Suspicious, Likely Cheating, VAC Banned) with the reasons on hover
-• How many recent matches had a player who was later banned
-• Premier rating and FACEIT ELO, peak or current with one click
-• Aim, K/D, win rate and last 5 results
-• Time to damage, utility, total matches (Premier, Competitive, Wingman and FACEIT) and account age
-• Wingman and per-map competitive ranks
+```
+Size up any Counter-Strike 2 player without leaving Steam.
 
-**Matches**: the last 10 games with map, mode, score and K-D.
-**Clips**: the player's Allstar highlights, playable in place.
-**Medals**: CS2 coins, pins and service medals beside the player's name.
+CS Stats adds a Stats panel to every Steam profile, built in Steam's own style, so you can check a teammate, an opponent or a new friend request in seconds. No extra tabs, no searching, no sign-up.
 
-Works with every Steam profile theme and screen size.
+IS THIS PLAYER CHEATING?
+• A clear verdict: Legit, Suspicious, Likely Cheating, VAC Banned or Game Banned
+• Hover to see why: time to damage, crosshair placement, headshot accuracy, aim rating, account age, FACEIT history and bans
+• "Played with banned": how many of their last 100 matches had a player who was later banned
 
-The verdict is an estimate from public stats, not proof. Please don't harass or report anyone based on it alone.
+HOW GOOD ARE THEY?
+• Premier rating in its in-game tier colour, peak or current with one click
+• FACEIT level and ELO, peak or current with one click
+• Aim rating, K/D, win rate and their last 5 results
+• Time to damage, utility rating, account age and total matches across Premier, Competitive, Wingman and FACEIT
+• Wingman rank and competitive rank for every map
+
+WHAT HAVE THEY BEEN PLAYING?
+• Their last 10 matches with map, mode, score and K-D, coloured by result
+• Their Allstar clips, playable right on the profile
+
+FEELS LIKE PART OF STEAM
+• Matches every Steam profile theme and works at any window size
+• Loads only on profile pages and caches results for a few minutes
+• Two settings, peak or current for Premier and FACEIT, saved with your Chrome profile
+
+POWER USERS
+Run the free companion server (instructions on GitHub) to also show commendations, Premier season medals and CS2 coins and service medals, pulled live from the CS2 Game Coordinator.
+
+PRIVACY
+Stats come from Leetify, FACEIT, the Steam Web API and Allstar, looked up by the Steam ID of the profile you're viewing. Nothing about you is collected or sent anywhere.
+
+A NOTE ON THE VERDICT
+It's an estimate from public stats, not proof. Great players can look suspicious and careful cheaters can look clean, so please don't harass or report anyone based on the verdict alone.
+
+CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT or Allstar.
+```
 
 ## What's new in 1.2.0
 
-• Redesigned Stats panel: everything lines up on one grid, with no overlaps at any screen size
-• New: cheating verdict, "played with banned players", time to damage, utility, total matches and account age
-• New: FACEIT peak ELO (click to see current), Premier season medals in the Stats row
-• Matches now show map names and the last 10 games; clips are always shown
-• Sharper, evenly spaced medals, now including Premier Season Five and Cologne 2026 items
-• Leetify data moved to Leetify's public API, so Leetify stats and matches load again
-• Package is much smaller (about 23 MB, down from 140+ MB)
+```
+• Cheating verdict with reasons, plus "played with banned" for recent matches
+• New stats: time to damage, utility, account age and total matches across all modes
+• Peak or current FACEIT ELO, one click to switch (just like Premier)
+• Redesigned Stats panel that lines up neatly at every screen size
+• Last 10 matches now show map names; clips always show when a player has them
+• Leetify stats and matches load again (moved to Leetify's new public API)
+• Much smaller download: about 23 MB, down from over 140 MB
+```
 
 ## Category / language
 
