@@ -1,28 +1,46 @@
-# CS2 Recon
+# CS Stats
 
-A Chrome extension that shows CS2 player stats directly on Steam profiles — no tab switching, no searching.
+A Chrome extension that shows CS2 player stats directly on Steam profiles — no tab switching, no searching. Everything is drawn in Steam's own showcase style, so it reads like part of the profile.
 
 ## What it shows
 
-Every Steam profile gets an inline **Stats** panel with data from multiple sources:
+Every Steam profile gets a **Stats** showcase, a **Matches** showcase (when Leetify has recent matches), a **Clips** showcase (when the player has clips) and CS2 medals in the profile header.
 
-| Row | Source | Data |
+### Stats showcase (top → bottom)
+
+| Row | Shows | Source |
 |---|---|---|
-| **Steam** | Steam Web API | Wins · K/D · HS% · Hours · Account age · Friend code · VAC/Game ban |
-| **CS2** ⭐ | Game Coordinator (local server) | Premier CS Rating · Premier wins · Competitive ranks · Wingman rank — **works on every profile** |
-| **Leetify** | Leetify profile feed | Premier (coloured by tier, peak on hover) · FACEIT ELO · Aim · K/D · Win Rate · Competitive rank images |
-| **CSStats** | csstats.gg | Premier (coloured by tier) · Peak Premier · Wins |
+| **Steam** | Premier season medals (newest season first, missing seasons skipped) · commendations (Friendly / Teacher / Leader) · **Verdict** tag · **Played with banned** (recent matches that had a player who was later banned, e.g. `1 / 100`) | GC server · Leetify · Steam Web API · derived |
+| **Performance** | A ratings column (Premier rating · FACEIT level + peak or current ELO) beside a column-aligned grid: Aim · K/D · Win Rate · Last 5 over Time to Damage · Utility · Total Matches · Account Age | Leetify · FACEIT · Steam Web API |
+| **Per-map ranks** | Wingman rank + competitive rank for each map | Leetify (Wingman from the GC server when available) |
 
-- **Steam row always appears** — account info (age, friend code) and CS2 stats (wins, K/D, HS%) are shown whenever available from the Steam API. No sign-up required.
-- **CS2 row (Game Coordinator)** shows real-time Premier CS Rating for literally any Steam account, even private profiles, by querying Valve's game servers directly. Requires the local server (see below).
-- VAC bans and game bans are highlighted in red/orange on the Steam row.
-- Premier CS Rating is colour-coded to match the in-game tier (grey → light blue → blue → purple → pink → red → gold).
-- Competitive rank images are shown per map.
+- Metrics without data are left out. Without a Leetify profile, the FACEIT level, ELO, K/D and HS% take the Leetify stats' place. On narrow screens the ratings sit above a two-column grid.
+- **Premier** is colour-coded to match the in-game tier (grey → light blue → blue → purple → pink → red → gold). Click the badge to switch between current and peak rating; hover it to see the other value.
+- **FACEIT ELO** shows the peak by default, and the level badge matches the ELO on display. Click it to switch to the current ELO; hover it to see which one is showing. The peak comes from FACEIT's match history (up to the last 1,000 games); if that history can't be loaded, only the current ELO is shown.
+- **Total Matches** counts everything: Premier, Competitive, Wingman and FACEIT. If Leetify doesn't import the player's FACEIT games, FACEIT lifetime matches are added to Leetify's total; if it does, the larger of the two counts is shown so nothing is counted twice. Hover for the breakdown.
+- **Account Age** comes from the Steam account creation date (hidden when the profile is private).
+- **Matches** always shows the past **10** matches: map, mode, score and K-D. The coloured edge and score show the result (green win, red loss, grey draw).
+- **Clips** shows the player's Allstar clips whenever there are any, playable in place.
+- **Header medals** (CS2 coins, pins, service medals and trophies) sit next to the persona name and page with arrows when they don't all fit. Premier season medals are shown in the Steam row instead, not here.
+
+### Cheating verdict
+
+The verdict tag in the Steam row is a quick read on whether the player might be cheating. Hover it to see the reasons.
+
+1. **Bans first.** A Steam VAC ban shows **VAC Banned**, a game ban shows **Game Banned**, and a ban recorded by Leetify shows **Banned**.
+2. **Otherwise, public stats are scored** (needs at least 10 Leetify matches). Points are added for unusually fast time to damage, very low preaim (crosshair placement), very high headshot accuracy, a near-perfect aim rating and very high accuracy on spotted enemies. A young account or a low match count adds a little more, but only when the mechanical signals already look unusual. Points are taken off for FACEIT level 9+ or 2,000+ ELO (FACEIT runs its own anti-cheat), 1,500+ matches and accounts older than 8 years.
+3. **Result:** a score of 6 or more is **Likely Cheating**, 3 to 5 is **Suspicious**, anything lower is **Legit**. When there is no usable data the verdict shows **No Data** with the reason (for example a private or rate-limited Leetify profile). If Steam's ban check can't be reached, the verdict never says **Legit**.
+
+The thresholds were checked against real profiles, and professional players (s1mple, FalleN, huNter-) come out **Legit**. Still, it is an **estimate from public stats, not proof**: good players can look suspicious and careful cheaters can look clean. Don't report or harass anyone on the strength of the verdict alone.
+
+### Settings
+
+The toolbar popup has two settings, **Premier rating** and **FACEIT ELO**, each **Current | Peak**. Clicking the Premier badge or the FACEIT ELO on any profile changes the same settings. The popup also opens as the extension's options page.
 
 ## Install
 
 ### From the Chrome Web Store
-Search for **CS2 Recon** or install directly from the store listing.
+Search for **CS Stats** or install directly from the store listing.
 
 ### Load unpacked (development)
 1. Open `chrome://extensions`
@@ -32,7 +50,7 @@ Search for **CS2 Recon** or install directly from the store listing.
 
 ## Local Steam stats server
 
-The **CS2 row** requires a small server on this Mac. It connects to the CS2 Game Coordinator using a spare Steam account and exposes a local HTTP API the extension calls at `http://127.0.0.1:3000`.
+CS level, commendations and header medals come from a small optional server on this computer. It connects to the CS2 Game Coordinator using a spare Steam account and exposes a local HTTP API the extension calls at `http://127.0.0.1:3000`.
 
 ### Prerequisites
 
@@ -49,7 +67,7 @@ cp -n server/.env.example server/.env
 docker compose up -d --build
 ```
 
-The Compose service is named `steam-stats`. It restarts automatically if the process crashes, saves Steam session data and profile cache in a Docker volume, and only exposes the API to this Mac.
+The Compose service is named `steam-stats`. It restarts automatically if the process crashes, saves Steam session data and profile cache in a Docker volume, and only exposes the API to this computer.
 
 On first run, Steam may email a Steam Guard code. If that happens, put the one-time code in `server/.env` as `STEAM_BOT_GUARD_CODE=12345`, then run:
 
@@ -76,7 +94,7 @@ The server keeps a persistent GC session and processes one request at a time wit
 
 If Steam or the GC drops, the server tries to recover automatically by restoring the Steam session, reasserting `gamesPlayed(730)`, waiting briefly for GC recovery on live requests, serving the last persisted GC result when the live session is unavailable, and exiting after a long unhealthy period so Docker can restart it cleanly.
 
-The extension points at the local GC proxy. If that proxy is unavailable, the CS2 row is silently hidden while the other rows keep working.
+The extension points at the local GC proxy. If that proxy is unavailable, the CS level, commendations and medals are simply left out while everything else keeps working.
 
 You can verify the server quickly with:
 
@@ -100,14 +118,24 @@ In Docker Desktop settings, enable **Start Docker Desktop when you log in**. Wit
 
 ---
 
+## Releasing
+
+```bash
+python tools/build-zip.py
+```
+
+This validates the manifest, assets and syntax, then writes `dist/cs-stats-<version>.zip` with only the files the extension loads. Store images and the listing text live in `store/` (`store/listing.md`).
+
 ## Data sources
 
-- **Steam Web API** — account age, friend code, wins, K/D, HS%, hours, ban info (API key required, bundled). Works on every public Steam profile.
-- **CS2 Game Coordinator** — Premier CS Rating, rank, wins queried directly from Valve's servers. Works on every Steam account. Requires the GC proxy server above.
-- **FACEIT** — ELO and level icon (API key required, bundled). Merged into the Leetify row when the player has a FACEIT account.
-- **Leetify** — CS Rating, skill ratings, and ranks from Leetify's live profile data
-- **CSStats** — CS Rating, wins (public page fetch, no key needed; requires login on csstats.gg for some profiles)
+- **Leetify public API** (`api-public.cs-prod.leetify.com/v3`, no key needed): Premier, Wingman and per-map competitive ranks, Aim and Utility ratings, time to damage, preaim and accuracy stats, win rate, total matches, recent matches and per-match K/D.
+- **FACEIT Data API** (API key bundled): level, ELO, lifetime matches, K/D and HS%. Shown alongside the Leetify row. Peak ELO comes from FACEIT's public match-history feed on faceit.com.
+- **Steam Web API** (API key bundled): account creation date and VAC / game ban status.
+- **Allstar**: the player's CS2 clips.
+- **CS2 Game Coordinator** (optional, via the local server above): CS level, commendations and medals, queried directly from Valve's servers.
+
+CSStats (csstats.gg) is no longer used.
 
 ## Privacy
 
-The extension reads the Steam64 ID from the profile page you are already viewing. That ID is used to look up stats from the services listed above. No data is stored or transmitted anywhere other than those services. GC lookups are sent to the local proxy server running on this Mac.
+The extension reads the Steam64 ID from the profile page you are already viewing. That ID is used to look up stats from the services listed above. Responses are cached in memory for a few minutes; nothing is stored or transmitted anywhere other than those services. The only thing saved is your Premier rating preference (Chrome sync storage). GC lookups are sent to the local proxy server running on this computer.

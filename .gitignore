@@ -28,3 +28,9 @@ urlscan-csst.json
 # OS
 .DS_Store
 Thumbs.db
+
+# Local UI harness (Steam snapshot, screenshots)
+.dev/
+
+# Build output
+dist/

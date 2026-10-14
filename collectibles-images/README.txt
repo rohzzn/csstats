@@ -12,3 +12,6 @@ Missing items:
 - collectible-5215 - Budapest 2025 Souvenir Package
   Source URL:
   https://raw.githubusercontent.com/ByMykel/counter-strike-image-tracker/main/static/panorama/images/econ/tournaments/bud2025/bud2025_pass_charge_png.png
+
+Processed for the header (2026-10-14): each PNG is trimmed to its visible alpha bounds (+2% margin) and resampled
+(premultiplied Lanczos) to 128px tall; collectibles-map.js records the resulting w/h. Script: tools/process-collectibles.py

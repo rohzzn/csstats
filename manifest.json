@@ -2,16 +2,17 @@
   "manifest_version": 3,
   "name": "CS Stats",
   "short_name": "CS Stats",
-  "version": "1.1.7",
-  "description": "CS2 stats on every Steam profile — FACEIT rank, CS Rating, Leetify ratings, commendations, friend code and AllStar clips.",
+  "version": "1.2.0",
+  "minimum_chrome_version": "111",
+  "description": "CS2 stats on every Steam profile: Premier & FACEIT ratings, Leetify stats, a cheating verdict, recent matches, medals and clips.",
   "permissions": [
     "storage"
   ],
   "host_permissions": [
     "https://steamcommunity.com/*",
-    "https://api.cs-prod.leetify.com/*",
+    "https://api-public.cs-prod.leetify.com/*",
     "https://open.faceit.com/*",
-    "https://csstats.gg/*",
+    "https://www.faceit.com/*",
     "https://api.steampowered.com/*",
     "http://127.0.0.1/*",
     "http://localhost/*",

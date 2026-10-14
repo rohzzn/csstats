@@ -579,7 +579,9 @@ function startWatchdog() {
       if (
         EXIT_ON_STALE_GC &&
         disconnectedFor >= GC_STALE_EXIT_MS &&
-        (runtime.lastGcReadyAt || runtime.recoveryAttemptsSinceReady >= 2 || runtime.manualRelogAttempts > 0 || runtime.loginAttempts > 1)
+        (runtime.lastGcReadyAt || runtime.recoveryAttemptsSinceReady >= 2 || runtime.manualRelogAttempts > 0 || runtime.loginAttempts > 1 ||
+          // a first login that never completes (stuck "connecting") must not hang the process forever
+          msSince(runtime.startedAt, now) >= GC_STALE_EXIT_MS)
       ) {
         recordEvent("error", `GC stayed unhealthy for ${Math.round(disconnectedFor / 1000)}s. Exiting for a clean process restart.`);
         persistProfileCache(true);

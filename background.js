@@ -11,14 +11,18 @@ const SETTINGS = Object.freeze({
   faceitApiKey: "b0ce56e8-e9a2-45e7-82ee-7310a0549d0f",
   enableLeetify: true,
   enableFaceit: true,
-  enableCsStats: true,
   gcServerUrl: "http://127.0.0.1:3000",
   allstarPublicKey: "3b717a42-ef7e-48d6-bd12-eba0daad9d7f",
   allstarServerKey: "90a30aed-0dfe-4220-9ac6-4e5c36a7c559",
   cacheTtlMs: 5 * 60 * 1000
 });
 
-const PROVIDER_ORDER = ["steam", "gc", "faceit", "leetify", "csstats", "allstar"];
+const PROVIDER_ORDER = ["steam", "gc", "faceit", "leetify", "allstar"];
+const LEETIFY_API_BASE = "https://api-public.cs-prod.leetify.com";
+const LEETIFY_MATCH_LIMIT = 10;
+const LEETIFY_KD_SAMPLE_SIZE = 30;
+const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
+const VERDICT_DISCLAIMER = "Estimate from public stats, not proof.";
 const providerCache = new Map();
 const inflightRequests = new Map();
 
@@ -49,7 +53,6 @@ async function buildProfileBundle(message) {
     gc:      () => getCachedProvider("gc",      steamId, settings, force, () => fetchGcData(steamId, settings)),
     faceit:  () => getCachedProvider("faceit",  steamId, settings, force, () => fetchFaceitData(steamId, settings)),
     leetify: () => getCachedProvider("leetify", steamId, settings, force, () => fetchLeetifyData(steamId, settings)),
-    csstats: () => getCachedProvider("csstats", steamId, settings, force, () => fetchCsStatsData(steamId, settings)),
     allstar: () => getCachedProvider("allstar", steamId, settings, force, () => fetchAllstarData(steamId, settings))
   };
 
@@ -64,6 +67,14 @@ async function buildProfileBundle(message) {
       }
     })
   );
+
+  try {
+    providers.push(buildInsightsProvider(providers, Date.now()));
+  } catch (error) {
+    providers.push(makeProviderResult("insights", "error", {
+      message: error.message || "Insights could not be computed."
+    }));
+  }
 
   return {
     ok: true,
@@ -81,9 +92,12 @@ function applyUserSettingsToProviders(providers, userSettings) {
       return provider;
     }
 
+    const metrics = applyPremierPreferenceToMetrics(provider.metrics, userSettings.showPeakPremier);
     const nextProvider = {
       ...provider,
-      metrics: applyPremierPreferenceToMetrics(provider.metrics, userSettings.showPeakPremier),
+      metrics: provider.id === "faceit"
+        ? applyFaceitPeakPreference(metrics, provider.peakElo, provider.peakEloScope, userSettings.showPeakFaceit)
+        : metrics,
       competitiveRanks: Array.isArray(provider.competitiveRanks) ? provider.competitiveRanks : [],
       wingmanRanks: Array.isArray(provider.wingmanRanks) ? provider.wingmanRanks : []
     };
@@ -99,35 +113,42 @@ function applyUserSettingsToProviders(providers, userSettings) {
   });
 }
 
+// Mirrors the Premier toggle: "Peak ELO" with the current value in the tooltip, or the reverse.
+function applyFaceitPeakPreference(metrics, peakElo, scope, preferPeak) {
+  const peak = asNumber(peakElo);
+  const note = scope ? ` (${scope})` : "";
+
+  return (Array.isArray(metrics) ? metrics : []).map((metric) => {
+    if (metric?.label !== "ELO") {
+      return metric;
+    }
+
+    const current = asNumber(metric.value);
+    if (peak === null || current === null || peak <= current) {
+      return metric;
+    }
+
+    return preferPeak
+      ? { ...metric, label: "Peak ELO", value: formatInteger(peak), tooltip: `Current ELO: ${metric.value}${note}` }
+      : { ...metric, tooltip: `Peak ELO: ${formatInteger(peak)}${note}` };
+  });
+}
+
 function applyPremierPreferenceToMetrics(metrics, preferPeak) {
   const list = Array.isArray(metrics)
     ? metrics.map((metric) => ({ ...metric }))
     : [];
-
-  if (!list.length) {
-    return list;
-  }
-
-  const bestMetric = list.find((metric) => metric?.label === "Best") || null;
 
   return list.flatMap((metric) => {
     if (!metric || typeof metric !== "object") {
       return [];
     }
 
-    if (metric.label === "Best") {
-      return [];
-    }
-
-    if (metric.label !== "Premier") {
+    if (metric.label !== "Premier" || !preferPeak) {
       return [metric];
     }
 
-    if (!preferPeak) {
-      return [metric];
-    }
-
-    const peakValue = resolvePeakPremierValue(metric, bestMetric);
+    const peakValue = resolvePeakPremierValue(metric);
     if (!peakValue) {
       return [metric];
     }
@@ -141,11 +162,7 @@ function applyPremierPreferenceToMetrics(metrics, preferPeak) {
   });
 }
 
-function resolvePeakPremierValue(metric, bestMetric) {
-  if (bestMetric?.value) {
-    return String(bestMetric.value);
-  }
-
+function resolvePeakPremierValue(metric) {
   const tooltip = String(metric?.tooltip || "");
   const match = tooltip.match(/Peak Premier:\s*([0-9][\d,]*)/i);
   return match ? match[1] : null;
@@ -184,6 +201,10 @@ async function getCachedProvider(providerId, steamId, settings, force, loader) {
 
 function getProviderCacheTtl(providerResult, defaultTtl) {
   const state = providerResult?.state;
+  if (providerResult?.partial) {
+    return 30 * 1000;
+  }
+
   if (state === "ready" || state === "not_found") {
     return defaultTtl;
   }
@@ -195,61 +216,63 @@ async function fetchSteamData(steamId, settings) {
   const profileUrl = `https://steamcommunity.com/profiles/${steamId}`;
   const friendCode = getSteamFriendCode(steamId);
 
+  const metrics = compact([makeMetric("Friend Code", friendCode)]);
+  const fallback = makeProviderResult("steam", "ready", {
+    title: "Steam",
+    url: profileUrl,
+    metrics,
+    details: [],
+    accountCreated: null,
+    bans: null
+  });
+
   if (!settings.steamApiKey) {
-    return makeProviderResult("steam", "ready", {
-      title: "Steam",
-      url: profileUrl,
-      metrics: compact([makeMetric("Friend Code", friendCode)]),
-      details: []
-    });
+    return fallback;
   }
 
   const key = settings.steamApiKey;
 
   try {
-    const [summaryRes, bansRes, statsRes] = await Promise.all([
+    const [summaryRes, bansRes] = await Promise.all([
       fetchJson(`https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/?key=${key}&steamids=${steamId}`).catch(() => null),
-      fetchJson(`https://api.steampowered.com/ISteamUser/GetPlayerBans/v1/?key=${key}&steamids=${steamId}`).catch(() => null),
-      fetchJson(`https://api.steampowered.com/ISteamUserStats/GetUserStatsForGame/v2/?key=${key}&steamid=${steamId}&appid=730`).catch(() => null)
+      fetchJson(`https://api.steampowered.com/ISteamUser/GetPlayerBans/v1/?key=${key}&steamids=${steamId}`).catch(() => null)
     ]);
 
     const player = summaryRes?.response?.players?.[0];
-    const banInfo = bansRes?.players?.[0];
-    const rawStats = statsRes?.playerstats?.stats || [];
-
-    const statMap = {};
-    for (const s of rawStats) { statMap[s.name] = s.value; }
-
-    // Ban — only shown when account actually has a ban
-    let banLabel = null;
-    if (banInfo) {
-      if (banInfo.VACBanned) {
-        banLabel = `VAC ×${banInfo.NumberOfVACBans}`;
-      } else if (banInfo.NumberOfGameBans > 0) {
-        banLabel = `Game ×${banInfo.NumberOfGameBans}`;
-      }
-    }
-
-    const metrics = compact([
-      makeMetric("Friend Code", friendCode),
-      banLabel ? makeMetric("Ban", banLabel) : null
-    ]);
+    const created = asNumber(player?.timecreated);
+    const bans = normalizeSteamBans(bansRes?.players?.[0]);
 
     // Always return at least friend code — Steam row shows on every profile
     return makeProviderResult("steam", "ready", {
       title: player?.personaname || "Steam",
       url: profileUrl,
-      metrics: metrics.length > 0 ? metrics : compact([makeMetric("Friend Code", friendCode)]),
-      details: []
+      metrics,
+      details: [],
+      accountCreated: created !== null && created > 0 ? created : null,
+      bans,
+      partial: !bans
     });
   } catch (_error) {
-    return makeProviderResult("steam", "ready", {
-      title: "Steam",
-      url: profileUrl,
-      metrics: compact([makeMetric("Friend Code", friendCode)]),
-      details: []
-    });
+    return fallback;
   }
+}
+
+function normalizeSteamBans(banInfo) {
+  if (!banInfo || typeof banInfo !== "object") {
+    return null;
+  }
+
+  const vac = Math.max(asNumber(banInfo.NumberOfVACBans) || 0, banInfo.VACBanned ? 1 : 0);
+  const game = asNumber(banInfo.NumberOfGameBans) || 0;
+  const daysSinceLast = asNumber(banInfo.DaysSinceLastBan);
+
+  return {
+    vac,
+    game,
+    daysSinceLast: vac + game > 0 ? daysSinceLast : null,
+    community: Boolean(banInfo.CommunityBanned),
+    economy: String(banInfo.EconomyBan || "none")
+  };
 }
 
 function getSteamFriendCode(steamId64Str) {
@@ -345,14 +368,23 @@ function getSteamFriendCode(steamId64Str) {
   }
 }
 
-function formatAccountAge(timecreated) {
-  const ageMs = Date.now() - timecreated * 1000;
-  const years = Math.floor(ageMs / (365.25 * 24 * 60 * 60 * 1000));
-  const months = Math.floor((ageMs % (365.25 * 24 * 60 * 60 * 1000)) / (30.44 * 24 * 60 * 60 * 1000));
+function formatAccountAge(timecreated, now = Date.now()) {
+  const ageMs = Math.max(0, now - timecreated * 1000);
+  const years = Math.floor(ageMs / YEAR_MS);
+  const months = Math.floor((ageMs % YEAR_MS) / (30.44 * 24 * 60 * 60 * 1000));
   if (years >= 1) {
     return months > 0 ? `${years}y ${months}m` : `${years}y`;
   }
-  return `${months}m`;
+  return months > 0 ? `${months}m` : "<1m";
+}
+
+function formatCalendarDate(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" });
 }
 
 
@@ -392,29 +424,7 @@ async function fetchGcData(steamId, settings) {
     ]);
 
     // Rank strips — future-proof for when Valve re-enables rankings
-    const wingmanRanks = (wingmanRank !== null && wingmanRank > 0)
-      ? [{
-          mapName: "Wingman",
-          rank: Math.min(18, Math.max(1, wingmanRank)),
-          rankLabel: competitiveRankLabel(wingmanRank),
-          image: chrome.runtime.getURL(`wingman/${CSGO_RANK_ASSET_MAP[Math.min(18, wingmanRank)] || "none.svg"}`)
-        }]
-      : [];
-
-    const competitiveRanks = Array.isArray(data.competitive_ranks)
-      ? data.competitive_ranks
-          .filter((r) => r.rank_id > 0)
-          .map((r) => {
-            const rank = Math.min(18, Math.max(1, r.rank_id));
-            return {
-              mapName: "Competitive",
-              rank,
-              rankLabel: competitiveRankLabel(rank),
-              image: chrome.runtime.getURL(`csranks/${CSGO_RANK_ASSET_MAP[rank] || "none.svg"}`)
-            };
-          })
-          .slice(0, 6)
-      : [];
+    const wingmanRanks = makeWingmanRanks(wingmanRank);
 
     const metrics = compact([
       premier !== null ? makeMetric("Premier", formatInteger(premier)) : null
@@ -429,7 +439,7 @@ async function fetchGcData(steamId, settings) {
         }
       : null;
 
-    if (!commendations.length && !metrics.length && !wingmanRanks.length && !competitiveRanks.length && !levelMetric && !medals.length) {
+    if (!commendations.length && !metrics.length && !wingmanRanks.length && !levelMetric && !medals.length) {
       return makeProviderResult("gc", "not_found", {});
     }
 
@@ -440,7 +450,6 @@ async function fetchGcData(steamId, settings) {
       medals,
       metrics,
       levelMetric,
-      competitiveRanks,
       wingmanRanks,
       details: []
     });
@@ -480,10 +489,15 @@ function resolveCollectibleMedal(id) {
     return null;
   }
 
+  const width = asNumber(asset.w);
+  const height = asNumber(asset.h);
+
   return {
     id: key,
     title: asset.title || `Collectible ${key}`,
-    image: chrome.runtime.getURL(`collectibles-images/${asset.file}`)
+    image: chrome.runtime.getURL(`collectibles-images/${asset.file}`),
+    width: width !== null && width > 0 ? width : null,
+    height: height !== null && height > 0 ? height : null
   };
 }
 
@@ -642,7 +656,10 @@ function inferPremierSeasonReleaseStamp(title) {
     }
   }
 
-  return 0;
+  // Seasons not in the table yet: roughly two per year after Season Three.
+  const word = title.match(/^Premier Season (\w+) Medal$/i)?.[1]?.toLowerCase() || "";
+  const season = ["four", "five", "six", "seven", "eight", "nine", "ten"].indexOf(word) + 4;
+  return season >= 4 ? (2024 + Math.ceil(season / 2)) * 10000 + (season % 2 ? 101 : 701) : 0;
 }
 
 function inferSpecialCollectibleReleaseStamp(title) {
@@ -874,50 +891,256 @@ async function fetchLeetifyData(steamId, settings) {
   }
 
   const profileUrl = `https://leetify.com/app/profile/${steamId}`;
-  const internalApiUrl = `https://api.cs-prod.leetify.com/api/profile/id/${encodeURIComponent(steamId)}`;
-  let internalProfile = null;
+  const query = `steam64_id=${encodeURIComponent(steamId)}`;
+  const options = { headers: { Accept: "application/json" } };
+  const fetchMatches = () => fetchJson(`${LEETIFY_API_BASE}/v3/profile/matches?${query}`, options, 10000);
+  let [profileResult, matchesResult] = await Promise.allSettled([
+    fetchJson(`${LEETIFY_API_BASE}/v3/profile?${query}`, options, 10000),
+    fetchMatches()
+  ]);
 
-  try {
-    internalProfile = await fetchJson(internalApiUrl, { headers: { Accept: "application/json" } }, 10000);
-  } catch (error) {
-    return isLeetifyMissingProfileError(error)
-      ? makeProviderResult("leetify", "not_found", { url: profileUrl })
-      : makeProviderResult("leetify", "error", {
-          url: profileUrl,
-          message: "Leetify is unavailable right now."
-        });
+  if (profileResult.status === "rejected") {
+    const error = profileResult.reason;
+    if (isLeetifyMissingProfileError(error)) {
+      return makeProviderResult("leetify", "not_found", { url: profileUrl });
+    }
+
+    return makeProviderResult("leetify", "error", {
+      url: profileUrl,
+      message: describeLeetifyError(error)
+    });
   }
 
-  const aim = asNumber(internalProfile?.recentGameRatings?.aim);
-  const kd = resolveLeetifyKd(internalProfile);
-  const winRate = resolveLeetifyWinRate(internalProfile);
-  const recentForm = resolveLeetifyRecentForm(internalProfile);
-  const recentMatches = resolveLeetifyRecentMatches(internalProfile);
-  const peakPremier = resolveLeetifyPeakPremier(internalProfile);
-  const premier = resolveLeetifyPremier(internalProfile);
-  const competitiveRanks = resolveLeetifyCompetitiveRanks(internalProfile);
+  const profile = profileResult.value;
+  if (!profile || typeof profile !== "object") {
+    return makeProviderResult("leetify", "error", { url: profileUrl, message: "Leetify is unavailable right now." });
+  }
 
-  const premierTooltip = peakPremier !== null
-    ? `Peak Premier: ${formatInteger(peakPremier)}`
-    : "";
+  if (isLeetifyPrivateProfile(profile)) {
+    return makeProviderResult("leetify", "error", { url: profileUrl, message: "This Leetify profile is private." });
+  }
+
+  if (matchesResult.status === "rejected" && !isLeetifyMissingProfileError(matchesResult.reason)) {
+    await delay(1500);
+    [matchesResult] = await Promise.allSettled([fetchMatches()]);
+  }
+
+  const matchStats = matchesResult.status === "fulfilled"
+    ? indexLeetifyMatchStats(matchesResult.value, steamId)
+    : new Map();
+  const normalized = normalizeLeetifyProfile(profile, matchStats, profileUrl);
+
+  return {
+    ...normalized,
+    stats: { ...normalized.stats, ...summarizeBannedLobbies(matchesResult.status === "fulfilled" ? matchesResult.value : null) },
+    partial: matchesResult.status !== "fulfilled"
+  };
+}
+
+// Leetify flags every match that had a player who was banned afterwards.
+function summarizeBannedLobbies(payload) {
+  const matches = Array.isArray(payload) ? payload : Array.isArray(payload?.matches) ? payload.matches : [];
+  if (!matches.length) {
+    return { bannedLobbies: null, bannedLobbySample: null };
+  }
+
+  return {
+    bannedLobbies: matches.filter((match) => match?.has_banned_player === true).length,
+    bannedLobbySample: matches.length
+  };
+}
+
+function normalizeLeetifyProfile(profile, matchStats, profileUrl) {
+  const ranks = profile?.ranks || {};
+  const rating = profile?.rating || {};
+  const stats = profile?.stats || {};
+  const recentMatches = sortByFinishedAt(profile?.recent_matches);
+  const premier = asNumber(ranks.premier);
+  const peakPremier = resolveLeetifyPeakPremier(ranks, recentMatches);
+  const recentForm = recentMatches
+    .map((match) => normalizeLeetifyMatchResult(match?.outcome))
+    .filter(Boolean)
+    .slice(0, 5);
+  const winRate = asNumber(profile?.winrate);
 
   const metrics = compact([
-    makeMetric("Premier", formatInteger(premier), "", { tooltip: premierTooltip }),
-    makeMetric("Aim", formatDecimal(aim, 1)),
-    makeMetric("K/D", formatDecimal(kd, 2)),
-    makeMetric("Win Rate", formatPercent(winRate, 1)),
+    makeMetric("Premier", premier !== null && premier > 0 ? formatInteger(premier) : null, "", {
+      tooltip: peakPremier !== null ? `Peak Premier: ${formatInteger(peakPremier)}` : ""
+    }),
+    makeMetric("Aim", formatDecimal(rating.aim, 1)),
+    makeMetric("K/D", formatDecimal(resolveLeetifyRecentKd(matchStats), 2)),
+    makeMetric("Win Rate", formatPercent(winRate === null ? null : (winRate <= 1 ? winRate * 100 : winRate), 1)),
     makeMetric("Last 5", recentForm.join(" "), "", { kind: "recentform", tokens: recentForm })
   ]);
 
+  const recentModes = recentMatches.map(resolveLeetifyMatchMode);
+  const modes = new Set(recentModes);
+
   return makeProviderResult("leetify", "ready", {
-    title: internalProfile?.meta?.name || "Leetify",
+    title: String(profile?.name || "").trim() || "Leetify",
     message: "",
     url: profileUrl,
-    competitiveRanks,
-    matches: recentMatches,
     metrics,
+    competitiveRanks: resolveRankEntries(ranks.competitive, "csranks"),
+    wingmanRanks: makeWingmanRanks(asNumber(ranks.wingman)),
+    matches: resolveLeetifyMatches(recentMatches, matchStats),
+    stats: {
+      reactionTimeMs: asNumber(stats.reaction_time_ms),
+      preaim: asNumber(stats.preaim),
+      accuracyHead: asNumber(stats.accuracy_head),
+      accuracyEnemySpotted: asNumber(stats.accuracy_enemy_spotted),
+      aimRating: asNumber(rating.aim),
+      utilityRating: asNumber(rating.utility),
+      totalMatches: asNumber(profile?.total_matches),
+      firstMatchDate: profile?.first_match_date ? String(profile.first_match_date) : null,
+      tracksFaceit: modes.has("FACEIT"),
+      faceitShare: recentModes.length ? recentModes.filter((mode) => mode === "FACEIT").length / recentModes.length : null,
+      sources: LEETIFY_SOURCE_ORDER.filter((mode) => modes.has(mode)),
+      faceitLevel: asNumber(ranks.faceit),
+      faceitElo: asNumber(ranks.faceit_elo)
+    },
+    bans: Array.isArray(profile?.bans) ? profile.bans : [],
     details: []
   });
+}
+
+const LEETIFY_SOURCE_ORDER = Object.freeze(["Premier", "Competitive", "Wingman", "FACEIT", "Pro", "Esplay"]);
+
+function describeLeetifyError(error) {
+  if (error?.status === 403) {
+    return "This Leetify profile is private.";
+  }
+
+  return error?.status === 429 ? "Leetify is busy, try again in a minute." : "Leetify is unavailable right now.";
+}
+
+function isLeetifyPrivateProfile(profile) {
+  const mode = String(profile?.privacy_mode || "").trim().toLowerCase();
+  const hasMatches = Array.isArray(profile?.recent_matches) && profile.recent_matches.length > 0;
+  return Boolean(mode) && mode !== "public" && !hasMatches;
+}
+
+function indexLeetifyMatchStats(payload, steamId) {
+  const matches = Array.isArray(payload) ? payload : Array.isArray(payload?.matches) ? payload.matches : [];
+  const index = new Map();
+
+  for (const match of matches) {
+    const player = Array.isArray(match?.stats)
+      ? match.stats.find((entry) => String(entry?.steam64_id || "") === steamId)
+      : null;
+    if (!match?.id || !player) {
+      continue;
+    }
+
+    index.set(String(match.id), {
+      finishedAt: String(match.finished_at || ""),
+      kills: asNumber(player.total_kills),
+      deaths: asNumber(player.total_deaths),
+      score: resolveLeetifyTeamScore(match.team_scores, asNumber(player.initial_team_number))
+    });
+  }
+
+  return index;
+}
+
+function resolveLeetifyTeamScore(teamScores, teamNumber) {
+  if (!Array.isArray(teamScores) || teamNumber === null) {
+    return "";
+  }
+
+  const ours = teamScores.find((team) => asNumber(team?.team_number) === teamNumber);
+  const theirs = teamScores.find((team) => asNumber(team?.team_number) !== teamNumber);
+  return formatScorePair([ours?.score, theirs?.score]);
+}
+
+function formatScorePair(pair) {
+  if (!Array.isArray(pair) || pair.length < 2) {
+    return "";
+  }
+
+  const ours = asNumber(pair[0]);
+  const theirs = asNumber(pair[1]);
+  return ours === null || theirs === null ? "" : `${Math.round(ours)}-${Math.round(theirs)}`;
+}
+
+function resolveLeetifyRecentKd(matchStats) {
+  const recent = Array.from(matchStats.values())
+    .filter((match) => match.kills !== null && match.deaths !== null)
+    .sort((left, right) => right.finishedAt.localeCompare(left.finishedAt))
+    .slice(0, LEETIFY_KD_SAMPLE_SIZE);
+  const kills = recent.reduce((sum, match) => sum + match.kills, 0);
+  const deaths = recent.reduce((sum, match) => sum + match.deaths, 0);
+
+  return recent.length && deaths > 0 ? kills / deaths : null;
+}
+
+function resolveLeetifyPeakPremier(ranks, recentMatches) {
+  const values = [
+    asNumber(ranks?.premier),
+    ...recentMatches
+      .filter((match) => asNumber(match?.rank_type) === 11)
+      .map((match) => asNumber(match?.rank))
+  ].filter((value) => value !== null && value > 0);
+
+  return values.length ? Math.max(...values) : null;
+}
+
+function resolveLeetifyMatches(recentMatches, matchStats) {
+  return recentMatches
+    .map((match) => {
+      const result = normalizeLeetifyMatchResult(match?.outcome);
+      const rawMapName = String(match?.map_name || "").trim();
+      if (!result || !rawMapName) {
+        return null;
+      }
+
+      const joined = matchStats.get(String(match?.id || "")) || null;
+
+      return {
+        id: String(match?.id || ""),
+        mapKey: normalizeLeetifyMapKey(rawMapName),
+        mapName: formatMatchMapName(rawMapName),
+        mapIcon: resolveLeetifyMapIcon(rawMapName),
+        result,
+        mode: resolveLeetifyMatchMode(match),
+        score: formatScorePair(match?.score) || joined?.score || "",
+        kills: joined?.kills === null || joined?.kills === undefined ? "" : String(Math.round(joined.kills)),
+        deaths: joined?.deaths === null || joined?.deaths === undefined ? "" : String(Math.round(joined.deaths)),
+        rating: formatLeetifyRating(match?.leetify_rating),
+        finishedAt: String(match?.finished_at || "")
+      };
+    })
+    .filter(Boolean)
+    .slice(0, LEETIFY_MATCH_LIMIT);
+}
+
+function formatLeetifyRating(value) {
+  const number = asNumber(value);
+  if (number === null) {
+    return "";
+  }
+
+  const scaled = number * 100;
+  return `${scaled > 0 ? "+" : ""}${scaled.toFixed(2)}`;
+}
+
+function sortByFinishedAt(list) {
+  return (Array.isArray(list) ? list.filter((item) => item && typeof item === "object") : [])
+    .sort((left, right) => String(right.finished_at || "").localeCompare(String(left.finished_at || "")));
+}
+
+function makeWingmanRanks(rank) {
+  if (rank === null || rank === undefined || rank <= 0) {
+    return [];
+  }
+
+  const normalizedRank = Math.max(1, Math.min(18, Math.round(rank)));
+  return [{
+    mapName: "Wingman",
+    rank: normalizedRank,
+    rankLabel: competitiveRankLabel(normalizedRank),
+    image: chrome.runtime.getURL(`wingman/${CSGO_RANK_ASSET_MAP[normalizedRank]}`)
+  }];
 }
 
 async function fetchFaceitData(steamId, settings) {
@@ -936,10 +1159,13 @@ async function fetchFaceitData(steamId, settings) {
       { headers }
     );
 
-    const stats = await fetchJson(
-      `https://open.faceit.com/data/v4/players/${encodeURIComponent(player.player_id)}/stats/cs2`,
-      { headers }
-    ).catch(() => null);
+    const [stats, history] = await Promise.all([
+      fetchJson(
+        `https://open.faceit.com/data/v4/players/${encodeURIComponent(player.player_id)}/stats/cs2`,
+        { headers }
+      ).catch(() => null),
+      fetchFaceitEloHistory(player.player_id)
+    ]);
 
     const cs2 = player?.games?.cs2 || {};
     const lifetime = stats?.lifetime || {};
@@ -948,7 +1174,7 @@ async function fetchFaceitData(steamId, settings) {
       pickAliasedNumber(lifetime, ["Average K/D Ratio", "Average K/D", "K/D Ratio"]),
       2
     );
-    const wins = formatInteger(pickAliasedNumber(lifetime, ["Matches"]));
+    const lifetimeMatches = pickAliasedNumber(lifetime, ["Matches"]);
     const hsPercent = formatPercent(
       pickAliasedNumber(lifetime, ["Average Headshots %", "Headshots %", "Average Headshots"]),
       1
@@ -957,7 +1183,7 @@ async function fetchFaceitData(steamId, settings) {
 
     const metrics = compact([
       makeMetric("ELO", formatInteger(cs2.faceit_elo)),
-      makeMetric("Matches", wins),
+      makeMetric("Matches", formatInteger(lifetimeMatches)),
       makeMetric("K/D", kd),
       makeMetric("HS%", hsPercent),
       statusMetric
@@ -973,12 +1199,55 @@ async function fetchFaceitData(steamId, settings) {
       rankImage,
       rankLabel: resolveFaceitRankLabel(cs2),
       metrics,
-      details: []
+      details: [],
+      lifetimeMatches,
+      skillLevel: asNumber(cs2.skill_level),
+      elo: asNumber(cs2.faceit_elo),
+      peakElo: history ? Math.max(asNumber(cs2.faceit_elo) || 0, history.peak) : null,
+      peakEloScope: history?.capped ? `peak over the last ${formatInteger(history.matches)} matches` : ""
     });
   } catch (_error) {
     return makeProviderResult("faceit", "not_found", {});
   }
 }
+
+// FACEIT's open API has no ELO history; its site's stats feed carries the post-match ELO of every
+// ELO-affecting game, 100 rows per page. Read newest-first until a short page, capped at 1,000 games.
+async function fetchFaceitEloHistory(playerId) {
+  if (!playerId) {
+    return null;
+  }
+
+  const peaks = [];
+  let matches = 0;
+  for (let page = 0; page < FACEIT_HISTORY_MAX_PAGES; page += 1) {
+    const rows = await fetchJson(
+      `https://www.faceit.com/api/stats/v1/stats/time/users/${encodeURIComponent(playerId)}/games/cs2?page=${page}&size=${FACEIT_HISTORY_PAGE_SIZE}`,
+      { headers: { Accept: "application/json" } },
+      8000
+    ).catch(() => null);
+    if (!Array.isArray(rows)) {
+      break;
+    }
+
+    matches += rows.length;
+    for (const row of rows) {
+      const elo = asNumber(row?.elo);
+      if (elo !== null && elo > 0) {
+        peaks.push(elo);
+      }
+    }
+
+    if (rows.length < FACEIT_HISTORY_PAGE_SIZE) {
+      return peaks.length ? { peak: Math.max(...peaks), matches, capped: false } : null;
+    }
+  }
+
+  return peaks.length ? { peak: Math.max(...peaks), matches, capped: true } : null;
+}
+
+const FACEIT_HISTORY_PAGE_SIZE = 100;
+const FACEIT_HISTORY_MAX_PAGES = 10;
 
 function resolveFaceitStatusMetric(player) {
   const membershipType = String(player?.membership_type || "").trim().toLowerCase();
@@ -1076,83 +1345,324 @@ async function fetchAllstarData(steamId, settings) {
   }
 }
 
+function buildInsightsProvider(providers, now) {
+  const byId = new Map((Array.isArray(providers) ? providers : []).filter(Boolean).map((provider) => [provider.id, provider]));
+  const steam = readyProvider(byId.get("steam"));
+  const leetify = readyProvider(byId.get("leetify"));
+  const faceit = readyProvider(byId.get("faceit"));
+  const totals = resolveTotalMatches(leetify?.stats, faceit);
+  const leetifyError = byId.get("leetify")?.state === "error" ? byId.get("leetify").message : "";
 
-async function fetchCsStatsData(steamId, settings) {
-  if (!settings.enableCsStats) {
-    return makeProviderResult("csstats", "not_found", {});
-  }
-
-  const profileUrl = `https://csstats.gg/player/${steamId}`;
-
-  try {
-    const html = await fetchText(profileUrl, {
-      credentials: "include",
-      headers: {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
-        "Referer": "https://steamcommunity.com/"
-      }
-    });
-
-    return normalizeCsStatsText(steamId, profileUrl, extractReadableText(html));
-  } catch (_error) {
-    return makeProviderResult("csstats", "not_found", {});
-  }
-}
-
-
-function normalizeCsStatsText(steamId, profileUrl, textInput) {
-  const text = normalizeTextBlock(textInput || "");
-
-  if (!text) {
-    return makeProviderResult("csstats", "error", {
-      message: "CSStats loaded, but no readable data was captured.",
-      url: profileUrl
-    });
-  }
-
-  if (hasAny(text, ["please login to view player stats", "please login to continue"])) {
-    return makeProviderResult("csstats", "setup", {
-      message: "Log in to csstats.gg in this browser to unlock CSStats data.",
-      url: profileUrl
-    });
-  }
-
-  if (hasAny(text, ["just a moment", "verify you are human", "attention required"])) {
-    return makeProviderResult("csstats", "setup", {
-      message: "CSStats is behind Cloudflare right now. Open the CSStats page once in this browser, then reload Steam.",
-      url: profileUrl
-    });
-  }
-
-  const lines = toLines(text);
-  const premierBlock = findPremierBlock(lines);
-  const faceitValue = findLabeledNumber(lines, /^faceit$/i, 8);
-  const trackingMessage = lines.find((line) => /tracking not enabled/i.test(line));
-
-  const metrics = compact([
-    makeMetric("Premier", premierBlock.current),
-    makeMetric("Best", premierBlock.best),
-    makeMetric("Wins", premierBlock.wins),
-    makeMetric("FACEIT", faceitValue)
-  ]);
-
-  if (!metrics.length) {
-    return makeProviderResult("csstats", "not_found", {});
-  }
-
-  return makeProviderResult("csstats", "ready", {
-    title: "CSStats",
-    message: trackingMessage || "",
-    url: profileUrl,
-    metrics,
-    details: compact([
-      makeDetail("Steam64", steamId)
-    ])
+  return makeProviderResult("insights", "ready", {
+    verdict: computeVerdict(collectVerdictInputs({ steam, leetify, faceit, totals, now, leetifyError })),
+    metrics: buildInsightMetrics({ steam, leetify, totals, now })
   });
 }
 
+function readyProvider(provider) {
+  return provider?.state === "ready" ? provider : null;
+}
+
+function buildInsightMetrics({ steam, leetify, totals, now }) {
+  const stats = leetify?.stats || {};
+  const reactionTimeMs = asNumber(stats.reactionTimeMs);
+  const created = asNumber(steam?.accountCreated);
+
+  return compact([
+    makeMetric("Time to Damage", reactionTimeMs !== null && reactionTimeMs > 0 ? `${Math.round(reactionTimeMs)}ms` : null, "", {
+      tooltip: "Average time from spotting an enemy to dealing damage (Leetify). Lower is faster."
+    }),
+    makeMetric("Total Matches", totals ? formatInteger(totals.total) : null, "", { tooltip: totals?.breakdown }),
+    makeMetric("Account Age", created ? formatAccountAge(created, now) : null, "", {
+      tooltip: created ? `Steam account created ${formatCalendarDate(created * 1000)}` : ""
+    }),
+    makeMetric("Utility", formatDecimal(stats.utilityRating, 1), "", { tooltip: "Leetify utility rating (50 = average)" })
+  ]);
+}
+
+function resolveTotalMatches(leetifyStats, faceit) {
+  const leetifyTotal = asNumber(leetifyStats?.totalMatches);
+  const faceitTotal = asNumber(faceit?.lifetimeMatches);
+
+  if (leetifyTotal === null || leetifyTotal <= 0) {
+    return faceitTotal ? { total: faceitTotal, breakdown: `FACEIT ${formatInteger(faceitTotal)}` } : null;
+  }
+
+  const sources = Array.isArray(leetifyStats.sources) && leetifyStats.sources.length
+    ? ` (${leetifyStats.sources.join(" · ")})`
+    : "";
+  const leetifyPart = `Leetify ${formatInteger(leetifyTotal)}${sources}`;
+
+  if (!faceitTotal) {
+    return { total: leetifyTotal, breakdown: leetifyPart };
+  }
+
+  if (!leetifyStats.tracksFaceit) {
+    return { total: leetifyTotal + faceitTotal, breakdown: `${leetifyPart} + FACEIT ${formatInteger(faceitTotal)}` };
+  }
+
+  // Leetify already imports this player's FACEIT games and the overlap is unknown: the larger count is a safe floor.
+  return faceitTotal > leetifyTotal
+    ? { total: faceitTotal, breakdown: `FACEIT ${formatInteger(faceitTotal)} · ${leetifyPart}, overlap counted once` }
+    : { total: leetifyTotal, breakdown: leetifyPart };
+}
+
+function collectVerdictInputs({ steam, leetify, faceit, totals, now, leetifyError = "" }) {
+  const stats = leetify?.stats || {};
+  const bans = steam?.bans || {};
+  const created = asNumber(steam?.accountCreated);
+
+  return {
+    bansKnown: Boolean(steam?.bans),
+    noDataReason: leetifyError,
+    vacBans: bans.vac,
+    gameBans: bans.game,
+    daysSinceLastBan: bans.daysSinceLast,
+    leetifyBans: leetify?.bans,
+    leetifyMatches: stats.totalMatches,
+    reactionTimeMs: stats.reactionTimeMs,
+    preaim: stats.preaim,
+    accuracyHead: stats.accuracyHead,
+    accuracyEnemySpotted: stats.accuracyEnemySpotted,
+    aimRating: stats.aimRating,
+    totalMatches: totals ? totals.total : null,
+    accountAgeYears: created ? Math.max(0, (now - created * 1000) / YEAR_MS) : null,
+    faceitLevel: firstNumber(faceit?.skillLevel, stats.faceitLevel),
+    faceitElo: firstNumber(faceit?.elo, stats.faceitElo)
+  };
+}
+
+const VERDICT_NUMBER_KEYS = Object.freeze([
+  "vacBans", "gameBans", "daysSinceLastBan", "leetifyMatches", "reactionTimeMs", "preaim", "accuracyHead",
+  "accuracyEnemySpotted", "aimRating", "totalMatches", "accountAgeYears", "faceitLevel", "faceitElo"
+]);
+
+const VERDICT_LABELS = Object.freeze({
+  legit: "Legit",
+  suspicious: "Suspicious",
+  likely: "Likely Cheating",
+  banned: "Banned",
+  unverified: "No Data"
+});
+
+// tiers are [limit, points, note]: "below" scores value < limit, "atLeast" value >= limit, "above" value > limit.
+const VERDICT_MECHANIC_RULES = Object.freeze([
+  {
+    key: "reactionTimeMs",
+    compare: "below",
+    tiers: [[330, 3, "very fast"], [380, 2, "fast"], [420, 1, "quick"]],
+    describe: (value, note) => `Time to damage ${Math.round(value)}ms (${note})`
+  },
+  {
+    key: "preaim",
+    compare: "below",
+    tiers: [[4, 3, "inhuman"], [5, 2, "very precise"], [6, 1, "precise"]],
+    describe: (value, note) => `Preaim ${value.toFixed(1)}° (${note})`
+  },
+  {
+    key: "accuracyHead",
+    compare: "above",
+    tiers: [[40, 3, "extreme"], [33, 2, "very high"], [28, 1, "high"]],
+    describe: (value, note) => `Headshot accuracy ${value.toFixed(1)}% (${note})`
+  },
+  {
+    key: "aimRating",
+    compare: "atLeast",
+    tiers: [[99, 2, "near max"], [95, 1, "elite"]],
+    describe: (value, note) => `Aim rating ${value.toFixed(1)} (${note})`
+  },
+  {
+    key: "accuracyEnemySpotted",
+    compare: "above",
+    tiers: [[55, 2, "very high"], [48, 1, "high"]],
+    describe: (value, note) => `Spotted accuracy ${value.toFixed(1)}% (${note})`
+  }
+]);
+
+function computeVerdict(rawInputs) {
+  const inputs = normalizeVerdictInputs(rawInputs);
+  const banVerdict = resolveBanVerdict(inputs);
+  if (banVerdict) {
+    return banVerdict;
+  }
+
+  const banNote = inputs.bansKnown === false ? ["Steam ban status unavailable"] : [];
+  if (!hasVerdictStats(inputs)) {
+    return makeVerdict("unverified", [...banNote, inputs.noDataReason || "Not enough public match data"], null);
+  }
+
+  const mechanics = scoreVerdictMechanics(inputs);
+  const mechanicalScore = sumVerdictPoints(mechanics);
+  const signals = [
+    ...mechanics,
+    ...(mechanicalScore >= 2 ? scoreVerdictContext(inputs) : []),
+    ...scoreVerdictMitigators(inputs)
+  ];
+  const score = sumVerdictPoints(signals);
+  const level = score >= 6 ? "likely" : score >= 3 ? "suspicious" : "legit";
+  const reasons = signals.map((signal) => signal.reason);
+
+  if (mechanicalScore <= 0) {
+    reasons.unshift("Aim stats within normal human range");
+  }
+
+  // Never call an account legit without a ban check.
+  if (banNote.length) {
+    return makeVerdict(level === "legit" ? "unverified" : level, [...banNote, ...reasons], score);
+  }
+
+  return makeVerdict(level, reasons, score);
+}
+
+function normalizeVerdictInputs(rawInputs) {
+  const inputs = { ...(rawInputs || {}) };
+  for (const key of VERDICT_NUMBER_KEYS) {
+    inputs[key] = asNumber(inputs[key]);
+  }
+
+  inputs.vacBans = inputs.vacBans || 0;
+  inputs.gameBans = inputs.gameBans || 0;
+  inputs.leetifyBans = Array.isArray(inputs.leetifyBans) ? inputs.leetifyBans.filter(Boolean) : [];
+  return inputs;
+}
+
+function makeVerdict(level, reasons, score, label = VERDICT_LABELS[level]) {
+  return {
+    level,
+    label,
+    reasons,
+    score,
+    disclaimer: VERDICT_DISCLAIMER,
+    tooltip: [label, ...reasons, VERDICT_DISCLAIMER].join("\n")
+  };
+}
+
+function resolveBanVerdict(inputs) {
+  const lastBan = formatLastBan(inputs.daysSinceLastBan);
+  const when = lastBan ? ` · ${lastBan}` : "";
+  const leetifyReasons = inputs.leetifyBans.map(describeLeetifyBan);
+
+  if (inputs.vacBans > 0) {
+    return makeVerdict("banned", compact([
+      `${pluralize(inputs.vacBans, "VAC ban")}${when}`,
+      inputs.gameBans > 0 ? pluralize(inputs.gameBans, "game ban") : null,
+      ...leetifyReasons
+    ]), null, "VAC Banned");
+  }
+
+  if (inputs.gameBans > 0) {
+    return makeVerdict("banned", [`${pluralize(inputs.gameBans, "game ban")}${when}`, ...leetifyReasons], null, "Game Banned");
+  }
+
+  return leetifyReasons.length ? makeVerdict("banned", leetifyReasons, null, "Banned") : null;
+}
+
+function describeLeetifyBan(ban) {
+  if (typeof ban !== "object") {
+    return `${String(ban)} ban on record (Leetify)`;
+  }
+
+  const platform = String(ban.platform || ban.source || "").trim();
+  const since = formatCalendarDate(ban.banned_since || ban.bannedSince || ban.created_at || "");
+  const name = { faceit: "FACEIT", steam: "Steam", esea: "ESEA" }[platform.toLowerCase()] || platform;
+  return `${name ? `${name} ban` : "Ban"} on record (Leetify)${since ? ` · since ${since}` : ""}`;
+}
+
+function hasVerdictStats(inputs) {
+  const mechanics = VERDICT_MECHANIC_RULES.map((rule) => inputs[rule.key]);
+  return inputs.leetifyMatches !== null && inputs.leetifyMatches >= 10 && mechanics.some((value) => value !== null && value > 0);
+}
+
+function scoreVerdictMechanics(inputs) {
+  return VERDICT_MECHANIC_RULES
+    .map((rule) => {
+      const value = inputs[rule.key];
+      if (value === null || value <= 0) {
+        return null;
+      }
+
+      const tier = rule.tiers.find(([limit]) => compareVerdictLimit(value, limit, rule.compare));
+      return tier ? { points: tier[1], reason: rule.describe(value, tier[2]) } : null;
+    })
+    .filter(Boolean);
+}
+
+function compareVerdictLimit(value, limit, compare) {
+  if (compare === "below") {
+    return value < limit;
+  }
+
+  return compare === "atLeast" ? value >= limit : value > limit;
+}
+
+function scoreVerdictContext(inputs) {
+  const signals = [];
+  const age = inputs.accountAgeYears;
+
+  if (age !== null && age < 1) {
+    const months = Math.floor(age * 12);
+    signals.push({ points: 2, reason: `New Steam account (${months > 0 ? `${pluralize(months, "month")} old` : "under a month old"})` });
+  } else if (age !== null && age < 2) {
+    signals.push({ points: 1, reason: "Steam account under 2 years old" });
+  }
+
+  if (inputs.totalMatches !== null && inputs.totalMatches < 100) {
+    signals.push({ points: 1, reason: `Only ${pluralize(inputs.totalMatches, "match", "matches")} tracked` });
+  }
+
+  return signals;
+}
+
+function scoreVerdictMitigators(inputs) {
+  const signals = [];
+
+  if (inputs.faceitLevel !== null && inputs.faceitLevel >= 9) {
+    signals.push({ points: -2, reason: `FACEIT level ${Math.round(inputs.faceitLevel)} (anti-cheat)` });
+  } else if (inputs.faceitElo !== null && inputs.faceitElo >= 2000) {
+    signals.push({ points: -2, reason: `FACEIT ${formatInteger(inputs.faceitElo)} ELO (anti-cheat)` });
+  }
+
+  if (inputs.totalMatches !== null && inputs.totalMatches >= 1500) {
+    signals.push({ points: -1, reason: `${formatInteger(inputs.totalMatches)} matches on record (long history)` });
+  }
+
+  if (inputs.accountAgeYears !== null && inputs.accountAgeYears >= 8) {
+    signals.push({ points: -1, reason: `Steam account ${Math.floor(inputs.accountAgeYears)} years old` });
+  }
+
+  return signals;
+}
+
+function sumVerdictPoints(signals) {
+  return signals.reduce((sum, signal) => sum + signal.points, 0);
+}
+
+function formatLastBan(days) {
+  if (days === null || days === undefined || days < 0) {
+    return "";
+  }
+
+  if (days === 0) {
+    return "banned today";
+  }
+
+  return days < 365 ? `last ${pluralize(days, "day")} ago` : `last ${pluralize(Math.floor(days / 365), "year")} ago`;
+}
+
+function pluralize(count, singular, plural = `${singular}s`) {
+  return `${formatInteger(count)} ${Math.round(count) === 1 ? singular : plural}`;
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    const number = asNumber(value);
+    if (number !== null) {
+      return number;
+    }
+  }
+
+  return null;
+}
 
 async function fetchJson(url, options = {}, timeoutMs = 15000) {
   const response = await fetchWithTimeout(url, options, timeoutMs);
@@ -1183,16 +1693,6 @@ async function postJson(url, body, options = {}) {
   }
 
   return response.json();
-}
-
-async function fetchText(url, options = {}) {
-  const response = await fetchWithTimeout(url, options);
-
-  if (!response.ok) {
-    throw await buildHttpError(response);
-  }
-
-  return response.text();
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
@@ -1239,9 +1739,9 @@ function providerTitle(id) {
     faceit: "FACEIT",
     leetify: "Leetify",
     steam: "Steam",
-    csstats: "CSStats",
     gc: "CS2",
-    allstar: "AllStar"
+    allstar: "AllStar",
+    insights: "Insights"
   }[id] || id;
 }
 
@@ -1270,13 +1770,6 @@ function resolveFaceitRankLabel(gameData) {
   return level === null ? "FACEIT" : `Level ${Math.round(level)}`;
 }
 
-function resolveLeetifyCompetitiveRanks(internalProfile) {
-  return resolveRankEntries(
-    getLeetifyLatestRankEntries(internalProfile, isLeetifyCompetitiveGame),
-    "csranks"
-  );
-}
-
 function resolveRankEntries(ranks, folder) {
   if (!Array.isArray(ranks)) {
     return [];
@@ -1294,7 +1787,7 @@ function resolveRankEntries(ranks, folder) {
       if (!assetName) { return null; }
 
       return {
-        mapName: formatCompetitiveMapName(entry?.map_name),
+        mapName: formatMatchMapName(entry?.map_name),
         rank: normalizedRank,
         rankLabel: competitiveRankLabel(normalizedRank),
         image: chrome.runtime.getURL(`${folder}/${assetName}`)
@@ -1307,98 +1800,6 @@ function resolveRankEntries(ranks, folder) {
 
 function isLeetifyMissingProfileError(error) {
   return error?.status === 404 || error?.status === 422;
-}
-
-function resolveLeetifyPeakPremier(internalProfile) {
-  const currentPremier = resolveLeetifyPremier(internalProfile);
-  const internalPeak = resolveLeetifyInternalPeakPremier(internalProfile);
-  const candidates = [currentPremier, internalPeak].filter((value) => value !== null && value > 0);
-  return candidates.length ? Math.max(...candidates) : null;
-}
-
-function resolveLeetifyPremier(internalProfile) {
-  const recentPremierGame = getLeetifyPremierGames(internalProfile)
-    .find((game) => {
-      const skillLevel = asNumber(game?.skillLevel);
-      return skillLevel !== null && skillLevel > 0;
-    });
-  return asNumber(recentPremierGame?.skillLevel);
-}
-
-function resolveLeetifyKd(internalProfile) {
-  const recentGames = getLeetifyRecentGames(internalProfile)
-    .map((game) => ({
-      kills: asNumber(game?.kills),
-      deaths: asNumber(game?.deaths)
-    }))
-    .filter((game) => game.kills !== null && game.deaths !== null);
-
-  if (!recentGames.length) {
-    return null;
-  }
-
-  const kills = recentGames.reduce((sum, game) => sum + game.kills, 0);
-  const deaths = recentGames.reduce((sum, game) => sum + game.deaths, 0);
-
-  if (deaths <= 0) {
-    return null;
-  }
-
-  return kills / deaths;
-}
-
-function resolveLeetifyWinRate(internalProfile) {
-  const recentGames = getLeetifyRecentGames(internalProfile)
-    .map((game) => String(game?.matchResult || "").trim().toLowerCase())
-    .filter(Boolean);
-
-  if (!recentGames.length) {
-    return null;
-  }
-
-  const wins = recentGames.filter((result) => result === "win").length;
-  return (wins / recentGames.length) * 100;
-}
-
-function resolveLeetifyRecentForm(internalProfile) {
-  return getLeetifyRecentGames(internalProfile)
-    .map((game) => normalizeLeetifyMatchResult(game?.matchResult))
-    .filter(Boolean)
-    .slice(0, 5);
-}
-
-function resolveLeetifyRecentMatches(internalProfile) {
-  return getSortedLeetifyGames(internalProfile)
-    .filter((game) => String(game?.mapName || "").trim())
-    .map((game) => {
-      const result = normalizeLeetifyMatchResult(game?.matchResult);
-      if (!result) {
-        return null;
-      }
-
-      const mapKey = normalizeLeetifyMapKey(game?.mapName);
-      const kills = asNumber(game?.kills);
-      const deaths = asNumber(game?.deaths);
-      const scores = Array.isArray(game?.scores) ? game.scores.map((score) => asNumber(score)) : [];
-      const partySize = Math.round(asNumber(game?.partySize) || 0);
-
-      return {
-        mapKey,
-        mapName: formatMatchMapName(game?.mapName),
-        mapIcon: resolveLeetifyMapIcon(game?.mapName),
-        result,
-        mode: resolveLeetifyMatchMode(game),
-        score: scores.length >= 2 && scores[0] !== null && scores[1] !== null
-          ? `${Math.round(scores[0])}-${Math.round(scores[1])}`
-          : "",
-        kills: kills === null ? "" : String(Math.round(kills)),
-        deaths: deaths === null ? "" : String(Math.round(deaths)),
-        party: partySize > 1 ? `Party ${partySize}` : "Solo",
-        finishedAt: String(game?.gameFinishedAt || "")
-      };
-    })
-    .filter(Boolean)
-    .slice(0, 15);
 }
 
 function normalizeLeetifyMatchResult(value) {
@@ -1432,83 +1833,31 @@ function normalizeLeetifyMatchResult(value) {
   return null;
 }
 
-function resolveLeetifyInternalPeakPremier(internalProfile) {
-  const premierGames = getLeetifyPremierGames(internalProfile)
-    .map((game) => asNumber(game?.skillLevel))
-    .filter((value) => value !== null && value > 0);
-
-  return premierGames.length ? Math.max(...premierGames) : null;
-}
-
-function getLeetifyPremierGames(internalProfile) {
-  return getSortedLeetifyGames(internalProfile)
-    .filter((game) => asNumber(game?.rankType) === 11)
-    .filter((game) => asNumber(game?.skillLevel) !== null);
-}
-
-function getLeetifyRecentGames(internalProfile) {
-  const sampleSize = Math.max(
-    1,
-    Math.round(asNumber(internalProfile?.recentGameRatings?.gamesPlayed) || 30)
-  );
-
-  return getSortedLeetifyGames(internalProfile).slice(0, sampleSize);
-}
-
-function getLeetifyLatestRankEntries(internalProfile, predicate) {
-  const latestByMap = new Map();
-
-  for (const game of getSortedLeetifyGames(internalProfile)) {
-    if (!predicate(game)) {
-      continue;
-    }
-
-    const rank = asNumber(game?.skillLevel);
-    if (rank === null || rank <= 0 || rank > 18) {
-      continue;
-    }
-
-    const mapName = String(game?.mapName || "").trim();
-    if (!mapName || latestByMap.has(mapName)) {
-      continue;
-    }
-
-    latestByMap.set(mapName, {
-      map_name: mapName,
-      rank
-    });
-  }
-
-  return Array.from(latestByMap.values());
-}
-
-function getSortedLeetifyGames(internalProfile) {
-  return (Array.isArray(internalProfile?.games) ? internalProfile.games.slice() : [])
-    .filter((game) => game?.isCs2 !== false)
-    .sort((left, right) => String(right?.gameFinishedAt || "").localeCompare(String(left?.gameFinishedAt || "")));
-}
-
-function resolveLeetifyMatchMode(game) {
-  const rankType = asNumber(game?.rankType);
-  const dataSource = String(game?.dataSource || "").trim().toLowerCase();
+function resolveLeetifyMatchMode(match) {
+  const rankType = asNumber(match?.rank_type);
+  const dataSource = String(match?.data_source || "").trim().toLowerCase();
 
   if (rankType === 11) {
     return "Premier";
   }
 
-  if (rankType === 12 || dataSource.includes("matchmaking_competitive")) {
+  if (rankType === 12 || dataSource === "matchmaking_competitive") {
     return "Competitive";
   }
 
-  if (dataSource.includes("faceit")) {
-    return "FACEIT";
-  }
-
-  if (dataSource.includes("wingman")) {
+  if (rankType === 7 || dataSource === "matchmaking_wingman") {
     return "Wingman";
   }
 
-  return "Match";
+  if (dataSource === "faceit") {
+    return "FACEIT";
+  }
+
+  if (dataSource === "hltv") {
+    return "Pro";
+  }
+
+  return dataSource === "esplay" ? "Esplay" : "Match";
 }
 
 function normalizeLeetifyMapKey(value) {
@@ -1536,12 +1885,6 @@ function resolveLeetifyMapIcon(value) {
 
 function formatMatchMapName(value) {
   return formatCompetitiveMapName(value).replace(/(\d+)/g, " $1").replace(/\s+/g, " ").trim();
-}
-
-function isLeetifyCompetitiveGame(game) {
-  const rankType = asNumber(game?.rankType);
-  const dataSource = String(game?.dataSource || "").trim().toLowerCase();
-  return rankType === 12 || dataSource.includes("matchmaking_competitive");
 }
 
 function formatCompetitiveMapName(value) {
@@ -1610,6 +1953,7 @@ const LEETIFY_CORE_MAP_ICON_KEYS = new Set([
   "cs_office",
   "de_ancient",
   "de_anubis",
+  "de_cache",
   "de_dust",
   "de_dust2",
   "de_inferno",
@@ -1652,17 +1996,6 @@ function makeMetric(label, value, meta = "", options = {}) {
   };
 }
 
-function makeDetail(label, value) {
-  if (value === null || value === undefined || value === "") {
-    return null;
-  }
-
-  return {
-    label,
-    value: String(value)
-  };
-}
-
 function compact(values) {
   return values.filter(Boolean);
 }
@@ -1701,6 +2034,10 @@ function normalizeKey(value) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function asNumber(value) {
   if (value === null || value === undefined || value === "") {
     return null;
@@ -1732,125 +2069,4 @@ function formatDecimal(value, digits = 1) {
 function formatPercent(value, digits = 1) {
   const number = asNumber(value);
   return number === null ? null : `${number.toFixed(digits)}%`;
-}
-
-function formatMilliseconds(value) {
-  const number = asNumber(value);
-  return number === null ? null : `${Math.round(number)} ms`;
-}
-
-function extractReadableText(html) {
-  return normalizeTextBlock(
-    String(html || "")
-      .replace(/<script[\s\S]*?<\/script>/gi, " ")
-      .replace(/<style[\s\S]*?<\/style>/gi, " ")
-      .replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-      .replace(/<[^>]+>/g, "\n")
-      .replace(/&nbsp;/gi, " ")
-      .replace(/&amp;/gi, "&")
-      .replace(/&#39;/gi, "'")
-      .replace(/&quot;/gi, "\"")
-  );
-}
-
-function normalizeTextBlock(value) {
-  return String(value || "")
-    .replace(/\r/g, "\n")
-    .replace(/\u00a0/g, " ")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function toLines(text) {
-  return normalizeTextBlock(text)
-    .split("\n")
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
-}
-
-function hasAny(text, snippets) {
-  const lowered = String(text || "").toLowerCase();
-  return snippets.some((snippet) => lowered.includes(snippet.toLowerCase()));
-}
-
-function findLabeledNumber(lines, labelRegex, lookahead = 4) {
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index];
-    if (!labelRegex.test(line)) {
-      continue;
-    }
-
-    const inline = line.match(/(-?\d[\d,.]*)/);
-    if (inline) {
-      return inline[1];
-    }
-
-    for (let offset = 1; offset <= lookahead; offset += 1) {
-      const nextLine = lines[index + offset];
-      if (!nextLine) {
-        break;
-      }
-
-      const direct = nextLine.match(/^(-?\d[\d,.]*%?)$/);
-      if (direct) {
-        return direct[1];
-      }
-
-      const labeled = nextLine.match(/(-?\d[\d,.]*)/);
-      if (labeled) {
-        return labeled[1];
-      }
-    }
-  }
-
-  return null;
-}
-
-function findPremierBlock(lines) {
-  const index = lines.findIndex((line) => /^Premier\b/i.test(line) || /Premier - Season/i.test(line));
-  if (index < 0) {
-    return { current: null, best: null, wins: null };
-  }
-
-  const windowLines = lines.slice(index, index + 12);
-  const numbers = windowLines.filter((line) => /^\d[\d,]*$/.test(line));
-  const winsLine = windowLines.find((line) => /^Wins:\s*\d[\d,]*/i.test(line));
-  const wins = winsLine ? winsLine.match(/\d[\d,]*/)?.[0] || null : null;
-
-  return {
-    current: numbers[0] || null,
-    best: numbers[1] || null,
-    wins
-  };
-}
-
-function extractPossibleTitle(rawTitle, fallback) {
-  const title = String(rawTitle || "").replace(/\s+\|\s+.*/, "").trim();
-  return title || fallback;
-}
-
-function normalizeText(value) {
-  const text = String(value || "").trim();
-  return text || null;
-}
-
-function normalizeHttpError(error, fallback) {
-  if (!error) {
-    return fallback;
-  }
-
-  if (error.name === "AbortError") {
-    return "The request timed out.";
-  }
-
-  if (error.status) {
-    return `${fallback} (HTTP ${error.status})`;
-  }
-
-  return error.message || fallback;
-}
-
-function delay(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

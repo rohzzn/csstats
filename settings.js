@@ -2,6 +2,7 @@
   const DEFAULT_USER_SETTINGS = Object.freeze({
     showMedals: true,
     showPeakPremier: true,
+    showPeakFaceit: true,
     showCompetitiveRanks: true,
     showMatches: true,
     matchesToShow: 10,
@@ -10,14 +11,16 @@
 
   const USER_SETTING_KEYS = Object.freeze(Object.keys(DEFAULT_USER_SETTINGS));
 
+  // Only showPeakPremier and showPeakFaceit are user-configurable; the other keys stay for storage compatibility.
   function normalizeUserSettings(raw = {}) {
     return {
       showMedals: true,
-      showPeakPremier: raw.showPeakPremier !== false,
+      showPeakPremier: raw?.showPeakPremier !== false,
+      showPeakFaceit: raw?.showPeakFaceit !== false,
       showCompetitiveRanks: true,
       showMatches: true,
-      matchesToShow: [5, 10, 15].includes(Number(raw.matchesToShow)) ? Number(raw.matchesToShow) : 10,
-      showClips: raw.showClips !== false
+      matchesToShow: 10,
+      showClips: true
     };
   }
 
@@ -75,14 +78,16 @@
   async function writeUserSettings(partial = {}) {
     const current = await readUserSettings();
     const next = normalizeUserSettings({ ...current, ...partial });
-    await storageSet(next);
-    return next;
-  }
+    const changed = {};
+    for (const key of Object.keys(partial || {}).filter(isUserSettingKey)) {
+      changed[key] = next[key];
+    }
 
-  async function resetUserSettings() {
-    const defaults = { ...DEFAULT_USER_SETTINGS };
-    await storageSet(defaults);
-    return defaults;
+    if (Object.keys(changed).length) {
+      await storageSet(changed);
+    }
+
+    return next;
   }
 
   globalScope.SPX_DEFAULT_USER_SETTINGS = DEFAULT_USER_SETTINGS;
@@ -91,5 +96,4 @@
   globalScope.SPX_isUserSettingKey = isUserSettingKey;
   globalScope.SPX_readUserSettings = readUserSettings;
   globalScope.SPX_writeUserSettings = writeUserSettings;
-  globalScope.SPX_resetUserSettings = resetUserSettings;
 })(typeof globalThis !== "undefined" ? globalThis : self);

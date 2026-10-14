@@ -1,9 +1,28 @@
 (function () {
-  const ROOT_ID  = "spx-cs2-profile-intel";
+  const ROOT_ID = "spx-cs2-profile-intel";
   const MATCHES_ID = "spx-cs2-matches-intel";
   const CLIPS_ID = "spx-cs2-clips-intel";
   const HEADER_MEDALS_ID = "spx-cs2-header-medals";
-  const DISPLAY_ORDER = ["steam", "leetify", "csstats"];
+  const TOOLTIP_ID = "spx-tooltip";
+  const ROOT_SELECTOR = `#${ROOT_ID}, #${MATCHES_ID}, #${CLIPS_ID}, #${HEADER_MEDALS_ID}`;
+  const DEFAULT_ERROR = "The extension could not load provider data.";
+  const MATCH_LIMIT = 10;
+  const CLIP_LIMIT = 8;
+  const MEDAL_GAP = 8;
+  const MEDAL_MIN_SLOT = 14;
+  const MEDAL_NAV_WIDTH = 58;
+  const VERDICT_LEVELS = ["legit", "suspicious", "likely", "banned", "unverified"];
+  const VERDICT_NOTE = "Estimate from public stats, not proof.";
+  const COMMENDATION_LABELS = Object.freeze({ friendly: "Friendly", teaching: "Teacher", leader: "Leader" });
+  const RESULT_NAMES = Object.freeze({ W: "win", L: "loss", D: "draw" });
+  const RESULT_LABELS = Object.freeze({ W: "Win", L: "Loss", D: "Draw" });
+  const SEASON_WORDS = Object.freeze({ one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 });
+  const PREMIER_PIN_HEIGHT = 30;
+  // FACEIT CS2 skill levels by ELO (level 10 is 2,001+).
+  const FACEIT_LEVEL_FLOORS = [1, 501, 751, 901, 1051, 1201, 1351, 1531, 1751, 2001];
+  // Second grid row, column-aligned under Aim · K/D · Win Rate · Last 5.
+  const INSIGHT_ORDER = ["Time to Damage", "Utility", "Total Matches", "Account Age"];
+  const PROFILE_PATH = /^\/(id|profiles)\/[^/]+\/?$/;
   const PREMIER_BADGE_ASSETS = Object.freeze({
     grey: chrome.runtime.getURL("premier/0-4999.png"),
     lightblue: chrome.runtime.getURL("premier/5000-9999.png"),
@@ -13,6 +32,12 @@
     red: chrome.runtime.getURL("premier/25000-29999.png"),
     gold: chrome.runtime.getURL("premier/30000+.png")
   });
+  const MAP_GLYPH = `<svg class="spx-map-glyph" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path d="M9 4.5 3.5 6.6v12.9L9 17.4l6 2.1 5.5-2.1V4.5L15 6.6 9 4.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M9 4.5v12.9M15 6.6v12.9" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>`;
+  const PLAY_GLYPH = `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false"><path d="M8.5 5.8v12.4a.6.6 0 0 0 .9.5l9.7-6.2a.6.6 0 0 0 0-1L9.4 5.3a.6.6 0 0 0-.9.5Z" fill="currentColor"/></svg>`;
+  const CHEVRON_GLYPHS = Object.freeze({
+    previous: `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M10 3.5 5.5 8l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    next: `<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M6 3.5 10.5 8 6 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  });
 
   const state = {
     steamId: null,
@@ -21,40 +46,45 @@
     matchesRoot: null,
     clipsRoot: null,
     settings: { ...SPX_DEFAULT_USER_SETTINGS },
-    headerMedals: [],
-    headerMedalIndex: 0,
-    headerMedalKey: ""
+    loadToken: 0,
+    html: new Map(),
+    medals: { list: [], key: "", start: 0, count: 0, slots: [], listBudget: 0, signature: "", observer: null },
+    tooltipAnchor: null
   };
 
   let resizeQueued = false;
 
   window.addEventListener("resize", () => {
+    hideTooltip();
     if (resizeQueued) return;
     resizeQueued = true;
     requestAnimationFrame(() => {
       resizeQueued = false;
-      renderHeaderMedals();
+      layoutHeaderMedals(false);
+      fitPremierPins();
     });
   });
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== "sync") return;
     if (!Object.keys(changes || {}).some((key) => SPX_isUserSettingKey(key))) return;
-    if (!state.steamId || !state.profileUrl) return;
+    if (!state.steamId) return;
 
-    loadBundle({
-      steamId: state.steamId,
-      profileUrl: state.profileUrl
-    });
+    loadBundle();
   });
 
+  installTooltip();
   start();
 
   function start() {
+    if (!PROFILE_PATH.test(window.location.pathname) && !document.documentElement.hasAttribute("data-spx-harness")) {
+      return;
+    }
+
     waitForSteamProfile()
       .then((context) => {
         mount(context);
-        loadBundle(context);
+        loadBundle();
       })
       .catch((error) => {
         console.warn("[Steam CS2 Profile Intel]", error.message);
@@ -99,9 +129,14 @@
       return profileMatch[1];
     }
 
-    const html = document.documentElement ? document.documentElement.innerHTML : "";
-    const inlineMatch = html.match(/g_rgProfileData\s*=\s*\{[^}]*"steamid":"(\d{17})"/);
-    return inlineMatch ? inlineMatch[1] : null;
+    for (const script of document.querySelectorAll("script:not([src])")) {
+      const inlineMatch = script.textContent.match(/g_rgProfileData\s*=\s*\{[^}]*"steamid":"(\d{17})"/);
+      if (inlineMatch) {
+        return inlineMatch[1];
+      }
+    }
+
+    return null;
   }
 
   function resolveProfileUrl() {
@@ -113,38 +148,39 @@
   }
 
   function resolveShowcaseTarget() {
-    return (
-      document.querySelector(".profile_customization_area") ||
-      document.querySelector(".profile_leftcol") ||
-      document.querySelector(".profile_rightcol")
-    );
+    const area = document.querySelector(".profile_customization_area");
+    if (area) {
+      return area;
+    }
+
+    // Private / showcase-less profiles still have the persona header; other pages do not.
+    if (!document.querySelector(".profile_header_centered_persona")) {
+      return null;
+    }
+
+    return document.querySelector(".profile_leftcol") || document.querySelector(".profile_rightcol");
   }
 
   function mount(context) {
     state.steamId = context.steamId;
     state.profileUrl = context.profileUrl;
 
-    const root = ensureRoot(ROOT_ID);
-    state.root = root;
-    if (!context.target.contains(root)) {
-      context.target.prepend(root);
+    state.root = ensureRoot(ROOT_ID);
+    if (!context.target.contains(state.root)) {
+      context.target.prepend(state.root);
     }
-    bindStatsRoot(root);
 
-    const matchesRoot = ensureRoot(MATCHES_ID);
-    state.matchesRoot = matchesRoot;
-    root.insertAdjacentElement("afterend", matchesRoot);
-    bindMatchesRoot(matchesRoot);
+    state.matchesRoot = ensureRoot(MATCHES_ID);
+    state.root.insertAdjacentElement("afterend", state.matchesRoot);
 
-    // Clips section goes directly after the matches section
-    const clipsRoot = ensureRoot(CLIPS_ID);
-    state.clipsRoot = clipsRoot;
-    matchesRoot.insertAdjacentElement("afterend", clipsRoot);
-    bindClipsRoot(clipsRoot);
+    state.clipsRoot = ensureRoot(CLIPS_ID);
+    state.matchesRoot.insertAdjacentElement("afterend", state.clipsRoot);
 
-    matchesRoot.innerHTML = "";
-    clipsRoot.innerHTML = "";
-    renderLoading(root);
+    bindRoot(state.root, handleStatsClick);
+    bindRoot(state.matchesRoot, null);
+    bindRoot(state.clipsRoot, handleClipsClick);
+
+    renderLoading();
   }
 
   function ensureRoot(id) {
@@ -157,597 +193,355 @@
     return root;
   }
 
-  async function loadBundle(context) {
+  function bindRoot(root, onClick) {
+    if (!root || root.dataset.spxBound === "1") return;
+    root.dataset.spxBound = "1";
+    root.addEventListener("error", handleImageError, true);
+    if (onClick) {
+      root.addEventListener("click", onClick);
+    }
+  }
+
+  async function loadBundle() {
+    const token = ++state.loadToken;
+
     try {
       const response = await chrome.runtime.sendMessage({
         type: "SPX_GET_PROFILE_BUNDLE",
-        steamId: context.steamId,
-        profileUrl: context.profileUrl
+        steamId: state.steamId,
+        profileUrl: state.profileUrl
       });
+      if (token !== state.loadToken) return;
 
       if (!response || !response.ok) {
-        renderFatal(state.root, response?.error || "The extension could not load provider data.");
+        renderFatal(response?.error || DEFAULT_ERROR);
         return;
       }
 
-      const latestSettings = await SPX_readUserSettings();
-      const hydratedResponse = {
-        ...response,
-        settings: latestSettings
-      };
+      const settings = await SPX_readUserSettings();
+      if (token !== state.loadToken) return;
 
-      state.settings = latestSettings;
-      renderBundle(state.root, hydratedResponse);
-      renderMatchesSection(state.matchesRoot, hydratedResponse);
-      renderClipsSection(state.clipsRoot, hydratedResponse);
-      renderHeaderMedals(hydratedResponse);
+      state.settings = settings;
+      renderAll({ ...response, settings });
     } catch (error) {
-      renderFatal(state.root, error.message || "The extension could not load provider data.");
-    }
-  }
-
-  function renderLoading(root) {
-    clearHeaderMedals();
-    root.innerHTML = `
-      <div class="profile_customization_header spx-showcase-header">Stats</div>
-      <div class="profile_customization_block">
-        <div class="showcase_content_bg spx-shell">
-          <div class="spx-row-list">
-            ${renderLoadingRow()}
-            ${renderLoadingRow()}
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  function renderFatal(root, message) {
-    clearHeaderMedals();
-    if (state.matchesRoot) {
-      state.matchesRoot.innerHTML = "";
-    }
-    if (state.clipsRoot) {
-      state.clipsRoot.innerHTML = "";
-    }
-    root.innerHTML = `
-      <div class="profile_customization_header spx-showcase-header">Stats</div>
-      <div class="profile_customization_block">
-        <div class="showcase_content_bg spx-shell">
-          <div class="spx-inline-note">${escapeHtml(message)}</div>
-        </div>
-      </div>
-    `;
-  }
-
-  function bindStatsRoot(root) {
-    if (!root || root.dataset.spxStatsBound === "1") return;
-    root.dataset.spxStatsBound = "1";
-
-    root.addEventListener("click", (event) => {
-      const target = event.target.closest("[data-spx-premier-toggle]");
-      if (!target || !root.contains(target)) return;
-
-      event.preventDefault();
-      togglePremierPreference();
-    });
-
-    root.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") return;
-      const target = event.target.closest("[data-spx-premier-toggle]");
-      if (!target || !root.contains(target)) return;
-
-      event.preventDefault();
-      togglePremierPreference();
-    });
-  }
-
-  function bindMatchesRoot(root) {
-    if (!root || root.dataset.spxMatchesBound === "1") return;
-    root.dataset.spxMatchesBound = "1";
-    root.addEventListener("change", handleInlineSettingChange);
-  }
-
-  function bindClipsRoot(root) {
-    if (!root || root.dataset.spxClipsBound === "1") return;
-    root.dataset.spxClipsBound = "1";
-    root.addEventListener("change", handleInlineSettingChange);
-  }
-
-  function togglePremierPreference() {
-    const settings = resolveUserSettings();
-    writeInlineSettings({ showPeakPremier: !settings.showPeakPremier });
-  }
-
-  function handleInlineSettingChange(event) {
-    const input = event.target;
-    if (!(input instanceof HTMLInputElement)) return;
-
-    const key = input.dataset.spxSetting;
-    if (!SPX_isUserSettingKey(key)) return;
-
-    const partial = {};
-    partial[key] = input.type === "radio" ? Number(input.value) : input.checked;
-    writeInlineSettings(partial);
-  }
-
-  async function writeInlineSettings(partial) {
-    const nextSettings = SPX_normalizeUserSettings({ ...state.settings, ...partial });
-    state.settings = nextSettings;
-
-    try {
-      state.settings = await SPX_writeUserSettings(partial);
-      if (state.steamId && state.profileUrl) {
-        loadBundle({
-          steamId: state.steamId,
-          profileUrl: state.profileUrl
-        });
+      if (token === state.loadToken) {
+        renderFatal(error?.message || DEFAULT_ERROR);
       }
-    } catch (error) {
-      console.warn("[Steam CS2 Profile Intel] Could not save profile settings:", error.message || error);
     }
   }
 
-  function renderBundle(root, bundle) {
-    const providerMap = new Map(
-      (Array.isArray(bundle.providers) ? bundle.providers : []).map((provider) => [provider.id, provider])
-    );
+  // ── Render pipeline ───────────────────────────────
 
-    const gcProvider    = providerMap.get("gc");
-    const steamProvider = providerMap.get("steam");
-    const gcWingmanRanks = gcProvider?.state === "ready" && Array.isArray(gcProvider.wingmanRanks)
-      ? gcProvider.wingmanRanks
-      : [];
-    const gcCompetitiveRanks = gcProvider?.state === "ready" && Array.isArray(gcProvider.competitiveRanks)
-      ? gcProvider.competitiveRanks
-      : [];
+  function renderAll(bundle) {
+    const view = buildView(bundle);
+    const focusKey = getFocusKey();
 
-    if (steamProvider && gcProvider?.state === "ready") {
-      providerMap.set("steam", {
-        ...steamProvider,
-        metrics: mergeSteamMetrics(steamProvider.metrics, gcProvider.levelMetric),
-        commendations: Array.isArray(gcProvider.commendations) && gcProvider.commendations.length
-          ? gcProvider.commendations
-          : Array.isArray(steamProvider.commendations) ? steamProvider.commendations : [],
-        wingmanRanks: gcCompetitiveRanks.length
-          ? mergeRankLists(gcWingmanRanks, steamProvider.wingmanRanks)
-          : [],
-        competitiveRanks: gcCompetitiveRanks.length
-          ? gcCompetitiveRanks
-          : Array.isArray(steamProvider.competitiveRanks) ? steamProvider.competitiveRanks : []
-      });
-    }
+    setHtml(state.root, renderStats(view));
+    applyPremierBadgeArt(state.root);
+    fitPremierPins();
+    document.fonts?.ready?.then(fitPremierPins);
+    setSection(state.matchesRoot, renderMatchesSection(view));
+    setSection(state.clipsRoot, renderClipsSection(view));
+    renderHeaderMedals(view.medals);
+    restoreFocus(focusKey);
+  }
 
-    const faceitProvider = providerMap.get("faceit");
-    const leetifyProvider = providerMap.get("leetify");
-    if (leetifyProvider?.state === "ready" && faceitProvider?.state === "ready") {
-      providerMap.set("leetify", mergeLeetifyWithFaceit(leetifyProvider, faceitProvider));
-    }
-
-    const mergedLeetifyProvider = providerMap.get("leetify");
-    if (
-      gcWingmanRanks.length &&
-      mergedLeetifyProvider?.state === "ready" &&
-      Array.isArray(mergedLeetifyProvider.competitiveRanks) &&
-      mergedLeetifyProvider.competitiveRanks.length
-    ) {
-      providerMap.set("leetify", {
-        ...mergedLeetifyProvider,
-        wingmanRanks: mergeRankLists(gcWingmanRanks, mergedLeetifyProvider.wingmanRanks)
-      });
-    }
-
-    const providers = DISPLAY_ORDER
-      .map((providerId) => providerMap.get(providerId) || makeFallbackProvider(providerId))
-      .filter((provider) => {
-        if (provider.state !== "ready") { return false; }
-        const hasMetrics       = Array.isArray(provider.metrics)       && provider.metrics.length > 0;
-        const hasCommendations = Array.isArray(provider.commendations) && provider.commendations.length > 0;
-        const hasRanks         = (Array.isArray(provider.competitiveRanks) && provider.competitiveRanks.length > 0) ||
-                                 (Array.isArray(provider.wingmanRanks)     && provider.wingmanRanks.length > 0);
-        return hasMetrics || hasCommendations || hasRanks;
-      });
-
-    if (!providers.length) {
-      root.innerHTML = `
-        <div class="profile_customization_header spx-showcase-header">Stats</div>
-        <div class="profile_customization_block">
-          <div class="showcase_content_bg spx-shell">
-            <div class="spx-inline-note">No stats visible right now.</div>
-          </div>
-        </div>
-      `;
-      return;
-    }
-
-    root.innerHTML = `
-      <div class="profile_customization_header spx-showcase-header">Stats</div>
-      <div class="profile_customization_block">
-        <div class="showcase_content_bg spx-shell">
-          <div class="spx-row-list">${providers.map((provider) => renderProviderRow(provider)).join("")}</div>
-        </div>
+  function renderLoading() {
+    clearHeaderMedals();
+    setSection(state.matchesRoot, "");
+    setSection(state.clipsRoot, "");
+    setHtml(state.root, renderShell("Stats", `
+      <div class="spx-skeleton" role="status" aria-label="Loading stats">
+        ${[1, 2, 3].map((index) => `<div class="spx-skeleton-row"><span class="spx-skeleton-bar spx-skeleton-bar-${index}"></span></div>`).join("")}
       </div>
-    `;
+    `));
   }
 
-  function renderHeaderMedals(bundle = null) {
-    const medals = bundle ? getGcMedals(bundle) : state.headerMedals;
-    const target = resolveHeaderMedalTarget();
-    let root = document.getElementById(HEADER_MEDALS_ID);
-
-    if (!medals.length || !target) {
-      clearHeaderMedals();
-      return;
-    }
-
-    prepareHeaderMedalTarget(target);
-    state.headerMedals = medals;
-
-    const medalKey = medals.map((medal) => `${medal.id}:${medal.image}`).join("|");
-    if (state.headerMedalKey !== medalKey) {
-      state.headerMedalKey = medalKey;
-      state.headerMedalIndex = 0;
-    }
-
-    if (!root) {
-      root = document.createElement("span");
-      root.id = HEADER_MEDALS_ID;
-      root.className = "spx-header-medals";
-    }
-
-    mountHeaderMedalRoot(target, root);
-
-    const visibleCount = getVisibleHeaderMedalCount();
-    const startIndex = normalizeHeaderMedalStart(state.headerMedalIndex, medals.length);
-    state.headerMedalIndex = startIndex;
-    const visibleMedals = getVisibleMedals(medals, startIndex, visibleCount);
-    const hasNavigation = medals.length > visibleCount;
-    const hasPrevious = startIndex > 0;
-    const hasNext = startIndex + visibleCount < medals.length;
-
-    root.innerHTML = `
-      <span class="spx-header-medals-shell">
-        <span class="spx-header-medal-list" aria-label="CS2 medals">
-          ${visibleMedals.map((medal) => `
-            <span class="spx-header-medal-item">
-              <img class="spx-header-medal-image" src="${escapeAttribute(medal.image)}" alt="${escapeAttribute(medal.title)}" title="${escapeAttribute(medal.title)}" />
-            </span>
-          `).join("")}
-        </span>
-        ${hasNavigation ? `
-          <span class="spx-header-medal-navs">
-            <button class="spx-header-medal-nav" type="button" data-direction="previous" aria-label="Show newer medals" ${hasPrevious ? "" : "disabled"}>
-              &#8249;
-            </button>
-            <button class="spx-header-medal-nav" type="button" data-direction="next" aria-label="Show older medals" ${hasNext ? "" : "disabled"}>
-              &#8250;
-            </button>
-          </span>
-        ` : ""}
-      </span>
-    `;
-
-    root.querySelectorAll(".spx-header-medal-nav").forEach((button) => {
-      button.addEventListener("click", () => {
-        if (button.disabled) {
-          return;
-        }
-
-        state.headerMedalIndex = button.dataset.direction === "previous"
-          ? getPreviousHeaderMedalStart(state.headerMedalIndex, visibleCount)
-          : getNextHeaderMedalStart(state.headerMedalIndex, medals.length, visibleCount);
-
-        renderHeaderMedals();
-      });
-    });
+  function renderFatal(message) {
+    clearHeaderMedals();
+    setSection(state.matchesRoot, "");
+    setSection(state.clipsRoot, "");
+    setHtml(state.root, renderShell("Stats", `<div class="spx-inline-note">${escapeHtml(message)}</div>`));
   }
 
-  function renderClipsSection(root, bundle) {
+  function setHtml(root, html) {
+    if (!root || state.html.get(root.id) === html) return;
+    if (state.tooltipAnchor && root.contains(state.tooltipAnchor)) {
+      hideTooltip();
+    }
+    state.html.set(root.id, html);
+    root.innerHTML = html;
+  }
+
+  function setSection(root, html) {
     if (!root) return;
-    const settings = resolveUserSettings(bundle);
-    const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
-    const allstar = providers.find((p) => p.id === "allstar");
-    const clips = (allstar?.state === "ready" && Array.isArray(allstar.clips)) ? allstar.clips : [];
-
-    if (!clips.length) {
-      root.innerHTML = "";
-      return;
-    }
-
-    root.innerHTML = `
-      <div class="profile_customization_header spx-showcase-header spx-section-header">
-        <span>Clips</span>
-        ${renderHeaderSwitch("showClips", settings.showClips, "Show clips")}
-      </div>
-      ${settings.showClips ? `
-        <div class="profile_customization_block">
-          <div class="showcase_content_bg spx-shell">
-            <div class="spx-clips-grid">
-              ${clips.map(renderClipThumb).join("")}
-            </div>
-          </div>
-        </div>
-      ` : ""}
-    `;
-
-    // Wire up click-to-play
-    root.querySelectorAll(".spx-clip[data-playable]").forEach((el) => {
-      el.addEventListener("click", () => {
-        if (el.classList.contains("spx-clip-playing")) return;
-        el.classList.add("spx-clip-playing");
-        const videoUrl = el.dataset.video;
-        if (videoUrl) {
-          el.innerHTML = `<video class="spx-clip-video" src="${escapeAttribute(videoUrl)}" autoplay controls></video>`;
-        }
-      });
-    });
+    root.hidden = !html;
+    setHtml(root, html);
   }
 
-  function renderMatchesSection(root, bundle) {
-    if (!root) return;
-    const settings = resolveUserSettings(bundle);
-    const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
-    const leetify = providers.find((provider) => provider.id === "leetify");
-    const matches = (leetify?.state === "ready" && Array.isArray(leetify.matches))
-      ? leetify.matches.slice(0, settings.matchesToShow)
-      : [];
-
-    if (!matches.length) {
-      root.innerHTML = "";
-      return;
-    }
-
-    root.innerHTML = `
-      <div class="profile_customization_header spx-showcase-header spx-section-header">
-        <span>Matches</span>
-        ${renderMatchesCountControl(settings)}
-      </div>
+  function renderShell(title, content) {
+    return `
+      <div class="profile_customization_header spx-showcase-header">${escapeHtml(title)}</div>
       <div class="profile_customization_block">
-        <div class="showcase_content_bg spx-shell">
-          <div class="spx-matches-grid">
-            ${matches.map(renderMatchCard).join("")}
-          </div>
-        </div>
+        <div class="showcase_content_bg spx-shell">${content}</div>
       </div>
     `;
   }
 
-  function renderMatchesCountControl(settingsInput) {
-    const settings = SPX_normalizeUserSettings(settingsInput);
-    return `
-      <span class="spx-section-controls spx-match-count-controls" role="radiogroup" aria-label="Matches to show">
-        ${[5, 10, 15].map((value, index) => `
-          <label class="spx-match-count-option">
-            <input type="radio" name="spxMatchesToShow" data-spx-setting="matchesToShow" value="${value}" aria-label="${escapeAttribute(`Show ${value} matches`)}" ${settings.matchesToShow === value ? "checked" : ""} />
-            <span class="spx-match-count-dot spx-match-count-dot-${index + 1}" aria-hidden="true"></span>
-          </label>
-        `).join("")}
-      </span>
-    `;
-  }
-
-  function renderHeaderSwitch(key, checked, label) {
-    return `
-      <span class="spx-section-controls">
-        <label class="spx-section-switch">
-          <input type="checkbox" data-spx-setting="${escapeAttribute(key)}" aria-label="${escapeAttribute(label)}" ${checked ? "checked" : ""} />
-          <span class="spx-section-switch-ui" aria-hidden="true"></span>
-        </label>
-      </span>
-    `;
-  }
-
-  function renderClipThumb(clip) {
-    const views   = clip.views === 1 ? "1 view" : `${Number(clip.views).toLocaleString()} views`;
-    const canPlay = !!clip.video;
-    const dataAttrs = [
-      canPlay ? `data-playable="1"` : "",
-      clip.video ? `data-video="${escapeAttribute(clip.video)}"` : ""
-    ].filter(Boolean).join(" ");
-
-    return `
-      <div class="spx-clip" ${dataAttrs}>
-        <img class="spx-clip-thumb" src="${escapeAttribute(clip.thumbnail)}" alt="${escapeAttribute(clip.title)}" loading="lazy" />
-        <div class="spx-clip-info">
-          <span class="spx-clip-title">${escapeHtml(clip.title)}</span>
-          <span class="spx-clip-views">${escapeHtml(views)}</span>
-        </div>
-        ${canPlay ? `<div class="spx-play-btn">▶</div>` : ""}
-      </div>
-    `;
-  }
-
-  function renderMatchCard(match) {
-    const resultClass = match.result === "W"
-      ? "spx-match-result-win"
-      : match.result === "L"
-        ? "spx-match-result-loss"
-        : "spx-match-result-draw";
-    const mapVisual = match.mapIcon
-      ? `<img class="spx-match-map-icon" src="${escapeAttribute(match.mapIcon)}" alt="${escapeAttribute(match.mapName)}" loading="lazy" />`
-      : `<div class="spx-match-map-fallback">${escapeHtml(getMatchMapFallback(match.mapName))}</div>`;
-    const kdValue = (match.kills || match.deaths) ? `${match.kills || "0"}-${match.deaths || "0"}` : "";
-
-    return `
-      <article class="spx-match-card ${resultClass}" title="${escapeAttribute(match.mapName || "Map")}">
-        <div class="spx-match-map-stack">
-          ${mapVisual}
-        </div>
-        <div class="spx-match-mode">${escapeHtml(match.mode || "Match")}</div>
-        ${match.score ? `<div class="spx-match-stat"><span class="spx-match-stat-label">Score</span><span class="spx-match-stat-value">${escapeHtml(match.score)}</span></div>` : ""}
-        ${kdValue ? `<div class="spx-match-stat"><span class="spx-match-stat-label">K-D</span><span class="spx-match-stat-value">${escapeHtml(kdValue)}</span></div>` : ""}
-      </article>
-    `;
-  }
-
-  function getMatchMapFallback(value) {
-    return String(value || "Map")
-      .replace(/[^A-Za-z0-9]/g, "")
-      .slice(0, 2)
-      .toUpperCase() || "MP";
-  }
-
-  function resolveHeaderMedalTarget() {
-    return (
-      document.querySelector(".profile_header_centered_persona > .persona_name") ||
-      document.querySelector(".profile_header_centered_col .profile_header_centered_persona .persona_name")
+  function buildView(bundle) {
+    const providers = new Map(
+      listOf(bundle?.providers)
+        .filter((provider) => provider.id)
+        .map((provider) => [provider.id, provider])
     );
+    const ready = (id) => {
+      const provider = providers.get(id);
+      return provider && provider.state === "ready" ? provider : null;
+    };
+    const gc = ready("gc");
+    const medals = listOf(gc?.medals).filter((medal) => medal.image);
+
+    return {
+      steam: ready("steam"),
+      gc,
+      faceit: ready("faceit"),
+      leetify: ready("leetify"),
+      insights: ready("insights"),
+      allstar: ready("allstar"),
+      settings: resolveUserSettings(bundle),
+      premierPins: collectPremierPins(medals),
+      medals: medals.filter((medal) => !getPremierSeason(medal))
+    };
   }
 
-  function prepareHeaderMedalTarget(target) {
-    if (!target) {
-      return;
+  function getFocusKey() {
+    const active = document.activeElement;
+    return active && active.closest && active.closest(ROOT_SELECTOR)
+      ? active.getAttribute("data-spx-focus")
+      : null;
+  }
+
+  function restoreFocus(key) {
+    if (!key) return;
+    const active = document.activeElement;
+    if (active && active !== document.body && active.isConnected) return;
+
+    const target = document.querySelector(`[data-spx-focus="${key}"]`);
+    if (target) {
+      target.focus({ preventScroll: true });
+    }
+  }
+
+  // ── Stats panel ───────────────────────────────────
+
+  function renderStats(view) {
+    const rows = [
+      renderSteamRow(view),
+      renderPerformanceRow(view)
+    ].filter(Boolean);
+    const strip = renderRankStrip(collectRanks(view));
+
+    if (!rows.length && !strip) {
+      return renderShell("Stats", `<div class="spx-inline-note">No stats visible right now.</div>`);
     }
 
-    target.classList.add("spx-header-medal-target");
-  }
-
-  function mountHeaderMedalRoot(target, root) {
-    const popup = target.querySelector("#NamePopup");
-    if (popup) {
-      target.insertBefore(root, popup);
-      return;
+    if (strip) {
+      if (rows.length > 1) {
+        rows[rows.length - 1].body += strip;
+      } else {
+        rows.push({ id: "ranks", body: strip });
+      }
     }
 
-    target.appendChild(root);
-  }
-
-  function getGcMedals(bundle) {
-    const providers = Array.isArray(bundle?.providers) ? bundle.providers : [];
-    const gcProvider = providers.find((provider) => provider.id === "gc");
-    return gcProvider?.state === "ready" && Array.isArray(gcProvider.medals)
-      ? gcProvider.medals
-      : [];
-  }
-
-  function clearHeaderMedals() {
-    const root = document.getElementById(HEADER_MEDALS_ID);
-    if (root) {
-      root.remove();
-    }
-    state.headerMedals = [];
-    state.headerMedalKey = "";
-    state.headerMedalIndex = 0;
-  }
-
-  function getVisibleHeaderMedalCount() {
-    return window.matchMedia("(max-width: 910px)").matches ? 3 : 4;
-  }
-
-  function getVisibleMedals(medals, startIndex, count) {
-    if (!medals.length) {
-      return [];
-    }
-
-    return medals.slice(startIndex, startIndex + Math.min(count, medals.length));
-  }
-
-  function normalizeHeaderMedalStart(index, total) {
-    if (!total) {
-      return 0;
-    }
-
-    return Math.max(0, Math.min(index, total - 1));
-  }
-
-  function getPreviousHeaderMedalStart(index, count) {
-    return Math.max(0, index - count);
-  }
-
-  function getNextHeaderMedalStart(index, total, count) {
-    return Math.min(Math.max(total - 1, 0), index + count);
-  }
-
-  function renderLoadingRow() {
-    return `
-      <article class="spx-provider-row spx-provider-row-loading">
-        <div class="spx-stat-line">
-          <div class="spx-loading-copy">Loading stats…</div>
-        </div>
-      </article>
-    `;
-  }
-
-  function renderProviderRow(provider) {
-    const metrics       = Array.isArray(provider.metrics)        ? provider.metrics        : [];
-    const commendations = Array.isArray(provider.commendations)  ? provider.commendations  : [];
-    const competitiveRanks = Array.isArray(provider.competitiveRanks) ? provider.competitiveRanks : [];
-    const wingmanRanks     = Array.isArray(provider.wingmanRanks)     ? provider.wingmanRanks     : [];
-    const note = provider.message ? `<div class="spx-provider-note">${escapeHtml(provider.message)}</div>` : "";
-
-    const rankIcon = provider.rankImage
-      ? `<img class="spx-rank-image" src="${escapeAttribute(provider.rankImage)}" alt="${escapeAttribute(provider.rankLabel || "")}" title="${escapeAttribute(provider.rankLabel || "")}" />`
-      : "";
-
-    const isReady = provider.state === "ready" && (metrics.length || commendations.length || competitiveRanks.length || wingmanRanks.length);
-
-    const body = isReady
-      ? provider.id === "steam"
-        ? renderSteamProviderBody({
-            rankIcon,
-            metrics,
-            commendations,
-            note,
-            ranks: [...wingmanRanks, ...competitiveRanks]
-          })
-        : `
-            <div class="spx-stat-line">
-              ${rankIcon}
-              ${metrics.length ? `<div class="spx-metric-grid">${metrics.map(renderMetric).join("")}</div>` : ""}
-              ${metrics.length && commendations.length ? `<div class="spx-stat-divider"></div>` : ""}
-              ${commendations.length ? renderCommendationStrip(commendations) : ""}
-              ${note}
-            </div>
-            ${(wingmanRanks.length || competitiveRanks.length) ? renderRankStrip([...wingmanRanks, ...competitiveRanks]) : ""}
-          `
-      : `<div class="spx-stat-line">
-          ${rankIcon}
-          ${note || `<div class="spx-provider-note">Stats are not available right now.</div>`}
-        </div>`;
-
-    return `
-      <article class="spx-provider-row spx-state-${escapeAttribute(provider.state)} spx-provider-${escapeAttribute(provider.id)}">
-        ${body}
-      </article>
-    `;
-  }
-
-  function renderSteamProviderBody({ rankIcon, metrics, commendations, note, ranks }) {
-    const levelMetric = metrics.find((metric) => metric?.kind === "cslevel" || metric?.label === "CS Level") || null;
-    const friendCodeMetric = metrics.find((metric) => metric?.label === "Friend Code") || null;
-    const secondaryMetrics = metrics.filter((metric) => metric !== levelMetric && metric !== friendCodeMetric);
-    if (friendCodeMetric) {
-      secondaryMetrics.push(friendCodeMetric);
-    }
-
-    const hasPrimary = Boolean(levelMetric) || commendations.length > 0;
-    const hasSecondary = secondaryMetrics.length > 0;
-
-    return `
-      <div class="spx-stat-line spx-stat-line-steam">
-        ${rankIcon}
-        ${hasPrimary ? `
-          <div class="spx-steam-primary">
-            ${levelMetric ? `<div class="spx-metric-grid spx-metric-grid-steam-primary">${renderMetric(levelMetric)}</div>` : ""}
-            ${levelMetric && commendations.length ? `<div class="spx-stat-divider"></div>` : ""}
-            ${commendations.length ? renderCommendationStrip(commendations) : ""}
-          </div>
-        ` : ""}
-        ${hasSecondary ? `<div class="spx-metric-grid spx-steam-secondary">${secondaryMetrics.map(renderMetric).join("")}</div>` : ""}
+    return renderShell("Stats", `
+      <div class="spx-row-list">
+        ${rows.map((row) => `<article class="spx-provider-row spx-provider-${row.id}">${row.body}</article>`).join("")}
       </div>
-      ${note}
-      ${ranks.length ? renderRankStrip(ranks) : ""}
-    `;
+    `);
+  }
+
+  function renderSteamRow({ steam, gc, leetify, insights, premierPins }) {
+    const commendations = firstList(gc?.commendations, steam?.commendations);
+    const verdict = insights?.verdict?.label ? insights.verdict : null;
+    const bannedLobbies = renderBannedLobbiesMetric(leetify?.stats);
+
+    const primary = [
+      commendations.length ? renderCommendationStrip(commendations) : "",
+      premierPins.length ? renderPremierPins(premierPins) : ""
+    ].filter(Boolean);
+    const secondary = [
+      verdict ? renderVerdictMetric(verdict) : "",
+      bannedLobbies
+    ].filter(Boolean);
+
+    if (!primary.length && !secondary.length) {
+      return null;
+    }
+
+    return {
+      id: "steam",
+      body: `
+        <div class="spx-stat-line spx-stat-line-steam">
+          ${primary.length ? `<div class="spx-steam-primary">${primary.join("")}</div>` : ""}
+          ${secondary.length ? `<div class="spx-metric-grid spx-steam-secondary">${secondary.join("")}</div>` : ""}
+        </div>
+      `
+    };
+  }
+
+  function renderPerformanceRow({ leetify, faceit, insights }) {
+    const leetifyMetrics = listOf(leetify?.metrics);
+    const premier = leetifyMetrics.find(isPremierMetric);
+    const ratings = [
+      premier ? renderPremierMetric(premier) : "",
+      faceit ? renderFaceitMetric(faceit) : ""
+    ].filter(Boolean);
+    const primary = leetify
+      ? leetifyMetrics.filter((metric) => !isPremierMetric(metric))
+      : ["K/D", "HS%"].map((label) => listOf(faceit?.metrics).find((metric) => metric.label === label)).filter(Boolean);
+    const secondary = sortByOrder(listOf(insights?.metrics), INSIGHT_ORDER);
+
+    if (!ratings.length && !primary.length && !secondary.length) {
+      return null;
+    }
+
+    // Rail column (ratings) + four stat columns; every cell is placed explicitly so a
+    // missing value never shifts the columns. Rows: [Premier, primary…] [FACEIT, insights…].
+    const hasRail = ratings.length > 0;
+    const firstColumn = hasRail ? 2 : 1;
+    const statRows = [primary, secondary].filter((list) => list.length);
+    const cells = [
+      ...ratings.map((item, index) => `<div class="spx-perf-rating spx-r${index + 1}">${item}</div>`),
+      ...statRows.flatMap((list, rowIndex) => list.slice(0, 4).map((metric, index) => renderMetric(metric, {
+        focusable: list === secondary,
+        className: [
+          "spx-stat",
+          `spx-r${rowIndex + 1}`,
+          `spx-c${firstColumn + index}`,
+          index > 0 || ratings[rowIndex] ? "spx-sep" : ""
+        ].filter(Boolean).join(" ")
+      })))
+    ];
+
+    return {
+      id: leetify ? "leetify" : "performance",
+      body: `<div class="spx-perf${hasRail ? "" : " spx-perf-norail"}">${cells.join("")}</div>`
+    };
+  }
+
+  function sortByOrder(metrics, order) {
+    const rank = (metric) => {
+      const index = order.indexOf(metric.label);
+      return index === -1 ? order.length : index;
+    };
+    return metrics.slice().sort((left, right) => rank(left) - rank(right));
+  }
+
+  function collectRanks({ gc, leetify }) {
+    const wingman = firstList(gc?.wingmanRanks, leetify?.wingmanRanks).find((rank) => rank.image);
+    const ranks = listOf(leetify?.competitiveRanks).filter((rank) => rank.image);
+    return wingman ? [{ ...wingman, mapName: "Wingman" }, ...ranks] : ranks;
   }
 
   function renderRankStrip(ranks) {
+    if (!ranks.length) {
+      return "";
+    }
+
     return `
       <div class="spx-competitive-strip">
-        ${ranks.map((entry) => `
-          <div class="spx-competitive-rank" title="${escapeAttribute(`${entry.mapName}: ${entry.rankLabel}`)}">
-            <img class="spx-competitive-image" src="${escapeAttribute(entry.image)}" alt="${escapeAttribute(entry.rankLabel)}" />
-            <div class="spx-competitive-map">${escapeHtml(entry.mapName)}</div>
-          </div>
-        `).join("")}
+        ${ranks.map((entry) => {
+          const label = entry.rankLabel || "Unranked";
+          return `
+            <div class="spx-competitive-rank" data-spx-tip="${escapeAttribute(`${entry.mapName}: ${label}`)}">
+              <img class="spx-competitive-image" src="${escapeAttribute(entry.image)}" width="74" height="30" alt="${escapeAttribute(label)}" decoding="async" />
+              <div class="spx-competitive-map">${escapeHtml(entry.mapName)}</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  // Newest season first; one medal per season (the highest variant if several came back).
+  function collectPremierPins(medals) {
+    const bySeason = new Map();
+    for (const medal of medals) {
+      const season = getPremierSeason(medal);
+      const current = bySeason.get(season);
+      if (season && (!current || Number(medal.id) > Number(current.id))) {
+        bySeason.set(season, medal);
+      }
+    }
+
+    return [...bySeason.entries()]
+      .sort(([left], [right]) => right - left)
+      .map(([season, medal]) => ({ season, medal }));
+  }
+
+  // Keep the Steam row on one line: when it would wrap (big commendation counts, long verdict,
+  // narrow profile), drop Premier pins from the oldest season first.
+  function fitPremierPins() {
+    const line = state.root?.querySelector(".spx-stat-line-steam");
+    const group = line?.querySelector(".spx-premier-pins");
+    if (!group) return;
+
+    const pins = [...group.querySelectorAll(".spx-premier-pin")];
+    group.hidden = false;
+    pins.forEach((pin) => { pin.hidden = false; });
+
+    for (let index = pins.length - 1; index >= 0 && steamRowWraps(line); index -= 1) {
+      pins[index].hidden = true;
+      group.hidden = index === 0;
+    }
+  }
+
+  function steamRowWraps(line) {
+    const primary = line.querySelector(".spx-steam-primary");
+    if (!primary) return false;
+
+    const items = [...primary.children].filter((item) => !item.hidden);
+    const first = items[0]?.getBoundingClientRect();
+    if (first && items.some((item) => item.getBoundingClientRect().top >= first.bottom - 1)) {
+      return true;
+    }
+
+    const commendations = primary.querySelector(".spx-commend-strip");
+    if (commendations && commendations.getBoundingClientRect().height > 34) {
+      return true;
+    }
+
+    // Below the narrow breakpoint the verdict group drops to its own line by design.
+    const secondary = line.querySelector(".spx-steam-secondary");
+    if (!secondary || getComputedStyle(secondary).flexBasis === "100%") {
+      return false;
+    }
+
+    return secondary.getBoundingClientRect().top >= primary.getBoundingClientRect().bottom - 1;
+  }
+
+  function getPremierSeason(medal) {
+    const match = String(medal?.title || "").match(/^Premier Season (\w+) Medal$/i);
+    if (!match) {
+      return 0;
+    }
+
+    const word = match[1].toLowerCase();
+    return SEASON_WORDS[word] || Number(word) || 0;
+  }
+
+  function renderPremierPins(pins) {
+    return `
+      <div class="spx-premier-pins" role="list" aria-label="Premier season medals">
+        ${pins.map(({ season, medal }) => {
+          const title = medal.title || `Premier Season ${season} Medal`;
+          const width = getMedalWidth(medal, PREMIER_PIN_HEIGHT);
+          return `
+            <span class="spx-premier-pin" role="listitem" data-spx-tip="${escapeAttribute(title)}">
+              <img src="${escapeAttribute(medal.image)}" ${width ? `width="${width}" ` : ""}height="${PREMIER_PIN_HEIGHT}" alt="${escapeAttribute(title)}" decoding="async" />
+            </span>
+          `;
+        }).join("")}
       </div>
     `;
   }
@@ -755,115 +549,188 @@
   function renderCommendationStrip(commendations) {
     return `
       <div class="spx-commend-strip">
-        ${commendations.map((c) => `
-          <div class="spx-commend-item spx-commend-${escapeAttribute(c.type)}">
-            <img class="spx-commend-icon" src="${escapeAttribute(c.image)}" alt="${escapeAttribute(c.type)}" />
-            <span class="spx-commend-value">${escapeHtml(c.value)}</span>
-          </div>
-        `).join("")}
+        ${commendations.map((commendation) => {
+          const label = COMMENDATION_LABELS[commendation.type] || "Commendation";
+          return `
+            <div class="spx-commend-item spx-commend-${escapeAttribute(commendation.type)}" role="img" aria-label="${escapeAttribute(`${commendation.value} ${label} commendations`)}" data-spx-tip="${escapeAttribute(label)}">
+              <img class="spx-commend-icon" src="${escapeAttribute(commendation.image)}" width="19" height="19" alt="" decoding="async" />
+              <span class="spx-commend-value">${escapeHtml(commendation.value)}</span>
+            </div>
+          `;
+        }).join("")}
       </div>
     `;
   }
 
-  function renderMetric(metric) {
-    if (metric?.kind === "cslevel" || metric?.kind === "faceitlevel") {
-      return renderLevelMetric(metric);
+  function renderVerdictMetric(verdict) {
+    const level = VERDICT_LEVELS.includes(verdict.level) ? verdict.level : "unverified";
+    const reasons = textList(verdict.reasons);
+    const note = verdict.disclaimer || VERDICT_NOTE;
+    const label = String(verdict.label);
+
+    return `
+      <div class="spx-metric spx-metric-verdict spx-verdict-${level}" tabindex="0" role="group"
+        data-spx-tip="${escapeAttribute(reasons.join("\n"))}"
+        data-spx-tip-title="${escapeAttribute(label)}"
+        data-spx-tip-note="${escapeAttribute(note)}"
+        aria-label="${escapeAttribute(["Verdict: " + label, ...reasons, note].join(". "))}">
+        <div class="spx-metric-value"><span class="spx-verdict-tag">${escapeHtml(label)}</span></div>
+      </div>
+    `;
+  }
+
+  // "Played with banned": recent matches that had a player who was banned afterwards.
+  function renderBannedLobbiesMetric(stats) {
+    const count = Number(stats?.bannedLobbies);
+    const sample = Number(stats?.bannedLobbySample);
+    if (!Number.isFinite(count) || !Number.isFinite(sample) || sample <= 0) {
+      return "";
     }
 
-    if (metric?.kind === "recentform") {
-      return renderRecentFormMetric(metric);
+    const tip = count === 0
+      ? `None of their last ${sample} matches had a player who was later banned (Leetify).`
+      : `${count} of their last ${sample} matches had a player who was later banned (Leetify).`;
+
+    return `
+      <div class="spx-metric spx-metric-banned${count / sample >= 0.1 ? " spx-banned-high" : ""}" tabindex="0" role="group"
+        aria-label="${escapeAttribute(`Played with banned players: ${count} of ${sample} matches`)}" data-spx-tip="${escapeAttribute(tip)}">
+        <div class="spx-metric-label">Played with banned</div>
+        <div class="spx-metric-value">${count} / ${sample}</div>
+      </div>
+    `;
+  }
+
+  function renderFaceitMetric(faceit) {
+    const elo = listOf(faceit.metrics).find((metric) => metric.label === "ELO" || metric.label === "Peak ELO");
+    const isPeak = elo?.label === "Peak ELO";
+    const tooltip = String(elo?.tooltip || "");
+    const other = (tooltip.match(isPeak ? /Current ELO:\s*([0-9][\d,]*)/i : /Peak ELO:\s*([0-9][\d,]*)/i) || [])[1] || "";
+    const scope = (tooltip.match(/\(([^)]+)\)\s*$/) || [])[1] || "";
+
+    // The level badge follows the ELO on display (Challenger stays Challenger).
+    const shownLevel = isPeak ? getFaceitLevel(elo.value) : 0;
+    const keepBadge = !shownLevel || (shownLevel >= 10 && /\/11\.svg$/.test(String(faceit.rankImage || "")));
+    const badgeImage = keepBadge ? faceit.rankImage : chrome.runtime.getURL(`faceit/${shownLevel}.svg`);
+    const label = keepBadge ? (faceit.rankLabel ? `FACEIT ${faceit.rankLabel}` : "FACEIT") : `FACEIT Level ${shownLevel} (peak)`;
+    const badge = badgeImage
+      ? `<span class="spx-badge spx-faceit-badge" data-spx-tip="${escapeAttribute(label)}"><img class="spx-level-image" src="${escapeAttribute(badgeImage)}" width="30" height="30" alt="${escapeAttribute(label)}" decoding="async" /></span>`
+      : "";
+
+    if (!badge && !elo) {
+      return "";
     }
 
-    if (metric.label === "Premier" || metric.label === "Peak Premier") {
+    // No label, like the Premier badge: the tooltip says whether this is the peak or current ELO.
+    const body = elo ? `<span class="spx-metric-value spx-faceit-elo">${escapeHtml(elo.value)}</span>` : "";
+
+    if (!other) {
+      return `<div class="spx-metric spx-metric-faceit">${badge}${body}</div>`;
+    }
+
+    const tip = [
+      isPeak ? `Peak FACEIT ELO · click to show current (${other})` : `Current FACEIT ELO · click to show peak (${other})`,
+      scope ? scope.charAt(0).toUpperCase() + scope.slice(1) : ""
+    ].filter(Boolean).join("\n");
+
+    return `
+      <button type="button" class="spx-metric spx-metric-faceit" data-spx-faceit-toggle="1" data-spx-focus="faceit" aria-pressed="${isPeak ? "true" : "false"}"
+        aria-label="${escapeAttribute(`${isPeak ? "Peak" : "Current"} FACEIT ELO ${elo.value}. Show ${isPeak ? "current" : "peak"} ELO`)}"
+        data-spx-tip="${escapeAttribute(tip)}">${badge}${body}</button>
+    `;
+  }
+
+  function getFaceitLevel(value) {
+    const elo = parseInt(String(value || "").replace(/,/g, ""), 10);
+    if (!Number.isFinite(elo) || elo <= 0) {
+      return 0;
+    }
+
+    let level = 1;
+    FACEIT_LEVEL_FLOORS.forEach((floor, index) => {
+      if (elo >= floor) {
+        level = index + 1;
+      }
+    });
+    return level;
+  }
+
+  function renderMetric(metric, { focusable = false, className = "" } = {}) {
+    if (metric.kind === "recentform") {
+      return renderRecentFormMetric(metric, className);
+    }
+
+    if (isPremierMetric(metric)) {
       return renderPremierMetric(metric);
     }
 
-    if (metric.label === "Ban") {
-      return renderBanMetric(metric);
-    }
-
-    const tooltip = metric.tooltip
-      ? ` class="spx-metric spx-tooltip-anchor" title="${escapeAttribute(metric.tooltip)}" data-tooltip="${escapeAttribute(metric.tooltip)}"`
-      : ` class="spx-metric"`;
+    const tip = metric.tooltip ? ` data-spx-tip="${escapeAttribute(metric.tooltip)}"` : "";
+    const tab = focusable && metric.tooltip
+      ? ` tabindex="0" role="group" aria-label="${escapeAttribute(`${metric.label}: ${metric.value}`)}"`
+      : "";
 
     return `
-      <div${tooltip}>
+      <div class="spx-metric${className ? ` ${className}` : ""}"${tip}${tab}>
         <div class="spx-metric-label">${escapeHtml(metric.label)}</div>
         <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
-        ${metric.meta ? `<div class="spx-metric-meta">${escapeHtml(metric.meta)}</div>` : ""}
       </div>
     `;
   }
 
-  function resolveUserSettings(bundle) {
-    return SPX_normalizeUserSettings(bundle?.settings || state.settings || SPX_DEFAULT_USER_SETTINGS);
-  }
-
-  function renderLevelMetric(metric) {
-    const image = metric.image
-      ? `<img class="spx-level-image" src="${escapeAttribute(metric.image)}" alt="${escapeAttribute(metric.label || "CS Level")}" title="${escapeAttribute(metric.label || "CS Level")}" />`
-      : "";
-    const metricClass = metric?.kind === "faceitlevel"
-      ? "spx-metric spx-metric-level spx-metric-faceitlevel"
-      : "spx-metric spx-metric-level";
+  function renderRecentFormMetric(metric, className = "") {
+    const tokens = textList(metric.tokens);
+    const summary = tokens.map((token) => RESULT_LABELS[token] || token).join(", ");
 
     return `
-      <div class="${metricClass}">
-        <div class="spx-level-badge">
-          ${image}
-        </div>
-      </div>
-    `;
-  }
-
-  function renderRecentFormMetric(metric) {
-    const tokens = Array.isArray(metric?.tokens) ? metric.tokens : [];
-
-    return `
-      <div class="spx-metric spx-metric-form">
+      <div class="spx-metric spx-metric-form${className ? ` ${className}` : ""}">
         <div class="spx-metric-label">${escapeHtml(metric.label)}</div>
-        <div class="spx-form-list">
-          ${tokens.map((token) => {
-            const tokenClass = token === "W"
-              ? "spx-form-token spx-form-token-win"
-              : token === "L"
-                ? "spx-form-token spx-form-token-loss"
-                : "spx-form-token spx-form-token-draw";
-            return `<span class="${tokenClass}">${escapeHtml(token)}</span>`;
-          }).join("")}
+        <div class="spx-form-list" role="img" aria-label="${escapeAttribute(`${metric.label}: ${summary}`)}">
+          ${tokens.map((token) => renderResultToken(token)).join("")}
         </div>
       </div>
     `;
   }
 
-  function renderBanMetric(metric) {
-    const isVac = String(metric.value).toLowerCase().includes("vac");
-    const banClass = isVac ? "spx-ban-vac" : "spx-ban-game";
-    return `
-      <div class="spx-metric spx-metric-ban ${banClass}">
-        <div class="spx-metric-label">${escapeHtml(metric.label)}</div>
-        <div class="spx-ban-badge">
-          <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
-        </div>
-      </div>
-    `;
+  function renderResultToken(token) {
+    const name = RESULT_NAMES[token] || "draw";
+    return `<span class="spx-form-token spx-form-token-${name}" aria-hidden="true">${escapeHtml(token)}</span>`;
+  }
+
+  function isPremierMetric(metric) {
+    return metric?.label === "Premier" || metric?.label === "Peak Premier";
   }
 
   function renderPremierMetric(metric) {
-    const rawNum = parseInt(String(metric.value || "").replace(/,/g, ""), 10);
-    const tier = getPremierTier(rawNum);
-    const badgeAsset = getPremierBadgeAsset(rawNum);
-    const settings = resolveUserSettings();
-    const toggleLabel = settings.showPeakPremier ? "Show current Premier" : "Show peak Premier";
-    const badgeStyle = badgeAsset ? ` style="background-image: url('${badgeAsset}');"` : "";
+    const isPeak = metric.label === "Peak Premier";
+    const value = String(metric.value || "");
+    const rating = parseInt(value.replace(/,/g, ""), 10);
+    const tier = getPremierTier(rating);
+    const otherMatch = String(metric.tooltip || "").match(isPeak ? /Current Premier:\s*([0-9][\d,]*)/i : /Peak Premier:\s*([0-9][\d,]*)/i);
+    const other = otherMatch ? otherMatch[1] : "";
+    const badge = `<span class="spx-premier-badge" data-spx-premier-tier="${tier}"><span class="spx-metric-value">${escapeHtml(value)}</span></span>`;
+    const className = `spx-metric spx-metric-premier spx-premier-${tier}`;
+
+    if (!other) {
+      return `<div class="${className}" data-spx-tip="${escapeAttribute(isPeak ? "Peak Premier" : "Premier rating")}">${badge}</div>`;
+    }
+
+    const tip = isPeak
+      ? `Peak Premier · click to show current (${other})`
+      : `Current Premier · click to show peak (${other})`;
 
     return `
-      <div class="spx-metric spx-metric-premier spx-premier-${tier}" data-spx-premier-toggle="1" role="button" tabindex="0" aria-label="${escapeAttribute(toggleLabel)}">
-        <div class="spx-premier-badge"${badgeStyle}>
-          <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
-        </div>
-      </div>
+      <button type="button" class="${className}" data-spx-premier-toggle="1" data-spx-focus="premier" aria-pressed="${isPeak ? "true" : "false"}"
+        aria-label="${escapeAttribute(`${isPeak ? "Peak" : "Current"} Premier rating ${value}. Show ${isPeak ? "current" : "peak"} rating`)}"
+        data-spx-tip="${escapeAttribute(tip)}">${badge}</button>
     `;
+  }
+
+  function applyPremierBadgeArt(root) {
+    root?.querySelectorAll("[data-spx-premier-tier]").forEach((badge) => {
+      const asset = PREMIER_BADGE_ASSETS[badge.dataset.spxPremierTier];
+      if (asset) {
+        badge.style.backgroundImage = `url("${asset}")`;
+      }
+    });
   }
 
   function getPremierTier(rating) {
@@ -877,89 +744,588 @@
     return "gold";
   }
 
-  function getPremierBadgeAsset(rating) {
-    const tier = getPremierTier(rating);
-    return PREMIER_BADGE_ASSETS[tier] || "";
+  function handleStatsClick(event) {
+    const target = event.target.closest("[data-spx-premier-toggle], [data-spx-faceit-toggle]");
+    if (!target || !state.root.contains(target)) return;
+
+    event.preventDefault();
+    const settings = resolveUserSettings();
+    writeInlineSettings(target.hasAttribute("data-spx-faceit-toggle")
+      ? { showPeakFaceit: !settings.showPeakFaceit }
+      : { showPeakPremier: !settings.showPeakPremier });
   }
 
-  function makeFallbackProvider(providerId) {
-    return {
-      id: providerId,
-      state: "error",
-      message: providerId === "faceit" ? "No FACEIT profile was found for this Steam account." : "Stats are not available right now.",
-      metrics: []
-    };
+  async function writeInlineSettings(partial) {
+    state.settings = SPX_normalizeUserSettings({ ...state.settings, ...partial });
+
+    try {
+      // chrome.storage.onChanged triggers the single re-render.
+      state.settings = await SPX_writeUserSettings(partial);
+    } catch (error) {
+      console.warn("[Steam CS2 Profile Intel] Could not save profile settings:", error.message || error);
+    }
   }
 
-  function mergeSteamMetrics(metrics, levelMetric) {
-    const base = Array.isArray(metrics) ? [...metrics] : [];
-    if (!levelMetric) {
-      return base;
-    }
-
-    if (base.some((metric) => metric?.kind === "cslevel" || metric?.label === "CS Level")) {
-      return base;
-    }
-
-    base.push(levelMetric);
-    return base;
+  function resolveUserSettings(bundle) {
+    return SPX_normalizeUserSettings(bundle?.settings || state.settings || SPX_DEFAULT_USER_SETTINGS);
   }
 
-  function mergeRankLists(primaryRanks, secondaryRanks) {
-    const merged = [];
-    const seen = new Set();
+  // ── Matches ───────────────────────────────────────
 
-    for (const rank of [...(Array.isArray(primaryRanks) ? primaryRanks : []), ...(Array.isArray(secondaryRanks) ? secondaryRanks : [])]) {
-      if (!rank || typeof rank !== "object") {
-        continue;
-      }
-
-      const key = `${rank.mapName || ""}:${rank.rankLabel || ""}:${rank.image || ""}`;
-      if (seen.has(key)) {
-        continue;
-      }
-
-      seen.add(key);
-      merged.push(rank);
+  function renderMatchesSection({ leetify }) {
+    const matches = listOf(leetify?.matches).slice(0, MATCH_LIMIT);
+    if (!matches.length) {
+      return "";
     }
 
-    return merged;
+    return renderShell("Matches", `<div class="spx-matches-grid">${matches.map(renderMatchCard).join("")}</div>`);
   }
 
-  function mergeLeetifyWithFaceit(leetifyProvider, faceitProvider) {
-    const leetifyMetrics = Array.isArray(leetifyProvider.metrics) ? [...leetifyProvider.metrics] : [];
-    const faceitMetrics = Array.isArray(faceitProvider.metrics) ? faceitProvider.metrics : [];
-    const eloMetric = faceitMetrics.find((metric) => metric?.label === "ELO");
+  function renderMatchCard(match) {
+    const result = RESULT_NAMES[match.result] ? match.result : "D";
+    const mapName = match.mapName || "Unknown map";
+    const mode = match.mode || "Match";
+    const hasKd = String(match.kills ?? "") !== "" || String(match.deaths ?? "") !== "";
+    const rating = match.rating ? `Leetify rating ${match.rating}` : "";
+    const tip = [mapName, mode, formatMatchDate(match.finishedAt), rating].filter(Boolean).join(" · ");
+    const mapVisual = match.mapIcon
+      ? `<img class="spx-match-map-icon" src="${escapeAttribute(match.mapIcon)}" width="34" height="34" alt="" loading="lazy" decoding="async" />`
+      : renderMapFallback();
 
-    if (eloMetric && !leetifyMetrics.some((metric) => metric?.label === "ELO")) {
-      const mergedMetrics = [];
-      if (faceitProvider.rankImage && !leetifyMetrics.some((metric) => metric?.kind === "faceitlevel")) {
-        mergedMetrics.push({
-          kind: "faceitlevel",
-          label: faceitProvider.rankLabel || "FACEIT level",
-          image: faceitProvider.rankImage
-        });
+    return `
+      <article class="spx-match spx-match-${RESULT_NAMES[result]}" data-spx-tip="${escapeAttribute(tip)}">
+        <div class="spx-match-map">${mapVisual}</div>
+        <div class="spx-match-info">
+          <div class="spx-match-name">${escapeHtml(mapName)}</div>
+          <div class="spx-match-mode">${escapeHtml(mode)}</div>
+        </div>
+        <div class="spx-match-result" role="img" aria-label="${escapeAttribute(`${RESULT_LABELS[result]} ${match.score || ""}`.trim())}">
+          ${match.score ? `<span class="spx-match-score" aria-hidden="true">${escapeHtml(match.score)}</span>` : ""}
+        </div>
+        ${hasKd
+          ? `<div class="spx-match-kd" data-spx-tip="Kills / Deaths" aria-label="${escapeAttribute(`${match.kills || 0} kills, ${match.deaths || 0} deaths`)}">${escapeHtml(`${match.kills || "0"} / ${match.deaths || "0"}`)}</div>`
+          : `<div class="spx-match-kd spx-match-kd-empty" aria-hidden="true">–</div>`}
+      </article>
+    `;
+  }
+
+  function renderMapFallback() {
+    return `<span class="spx-match-map-fallback" role="img" aria-label="Map">${MAP_GLYPH}</span>`;
+  }
+
+  function formatMatchDate(value) {
+    if (!value) {
+      return "";
+    }
+
+    const date = new Date(typeof value === "number" && value < 1e12 ? value * 1000 : value);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+
+    const day = new Date(date);
+    const today = new Date();
+    day.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    const days = Math.round((today - day) / 86400000);
+    if (days <= 0) return "Today";
+    if (days === 1) return "Yesterday";
+    if (days < 7) return `${days} days ago`;
+
+    const sameYear = date.getFullYear() === new Date().getFullYear();
+    return date.toLocaleDateString("en-US", sameYear
+      ? { month: "short", day: "numeric" }
+      : { month: "short", day: "numeric", year: "numeric" });
+  }
+
+  // ── Clips ─────────────────────────────────────────
+
+  function renderClipsSection({ allstar }) {
+    const clips = listOf(allstar?.clips).filter((clip) => clip.thumbnail).slice(0, CLIP_LIMIT);
+    if (!clips.length) {
+      return "";
+    }
+
+    return renderShell("Clips", `<div class="spx-clips-grid" data-count="${clips.length}">${clips.map(renderClipCard).join("")}</div>`);
+  }
+
+  function renderClipCard(clip) {
+    const title = String(clip.title || "CS2 Clip");
+    const url = /^https:\/\//i.test(String(clip.url || "")) ? clip.url : "";
+    const media = `
+      <img class="spx-clip-thumb" src="${escapeAttribute(clip.thumbnail)}" width="320" height="180" alt="" loading="lazy" decoding="async" />
+      <span class="spx-clip-play" aria-hidden="true">${PLAY_GLYPH}</span>
+    `;
+    const mediaControl = clip.video
+      ? `<button type="button" class="spx-clip-media" data-spx-clip-video="${escapeAttribute(clip.video)}" data-spx-clip-url="${escapeAttribute(url)}" data-spx-clip-poster="${escapeAttribute(clip.thumbnail)}" aria-label="${escapeAttribute(`Play clip: ${title}`)}">${media}</button>`
+      : url
+        ? `<a class="spx-clip-media" href="${escapeAttribute(url)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeAttribute(`Open clip on Allstar: ${title}`)}">${media}</a>`
+        : `<div class="spx-clip-media">${media}</div>`;
+
+    return `
+      <figure class="spx-clip">
+        ${mediaControl}
+        <figcaption class="spx-clip-caption">
+          <span class="spx-clip-title" data-spx-tip="${escapeAttribute(title)}">${escapeHtml(title)}</span>
+        </figcaption>
+      </figure>
+    `;
+  }
+
+  function handleClipsClick(event) {
+    const button = event.target.closest("[data-spx-clip-video]");
+    if (!button || !state.clipsRoot.contains(button)) return;
+
+    event.preventDefault();
+    playClip(button);
+  }
+
+  function playClip(button) {
+    const video = document.createElement("video");
+    video.className = "spx-clip-video";
+    video.width = 320;
+    video.height = 180;
+    video.poster = button.dataset.spxClipPoster || "";
+    video.controls = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+    video.setAttribute("aria-label", button.getAttribute("aria-label") || "Clip");
+
+    video.addEventListener("play", () => pauseOtherClips(video));
+    video.addEventListener("error", () => {
+      if (!video.isConnected) return;
+      const hadFocus = document.activeElement === video;
+      video.replaceWith(button);
+      if (hadFocus) {
+        button.focus({ preventScroll: true });
       }
-      mergedMetrics.push(eloMetric);
+      if (button.dataset.spxClipUrl) {
+        window.open(button.dataset.spxClipUrl, "_blank", "noopener");
+      }
+    }, { once: true });
 
-      const premierIndex = leetifyMetrics.findIndex((metric) => metric?.label === "Premier" || metric?.label === "Peak Premier");
-      if (premierIndex >= 0) {
-        leetifyMetrics.splice(premierIndex + 1, 0, ...mergedMetrics);
-      } else {
-        leetifyMetrics.unshift(...mergedMetrics);
+    hideTooltip();
+    button.replaceWith(video);
+    video.src = button.dataset.spxClipVideo;
+    video.focus({ preventScroll: true });
+    pauseOtherClips(video);
+  }
+
+  function pauseOtherClips(current) {
+    state.clipsRoot?.querySelectorAll("video").forEach((video) => {
+      if (video !== current && !video.paused) {
+        video.pause();
+      }
+    });
+  }
+
+  // ── Header medals ─────────────────────────────────
+
+  function renderHeaderMedals(medals) {
+    const target = resolveHeaderMedalTarget();
+    if (!medals.length || !target) {
+      clearHeaderMedals();
+      return;
+    }
+
+    const medalState = state.medals;
+    const key = medals.map((medal) => `${medal.id}:${medal.image}`).join("|");
+    if (medalState.key !== key) {
+      medalState.key = key;
+      medalState.list = medals;
+      medalState.start = 0;
+      medalState.signature = "";
+    }
+
+    target.classList.add("spx-header-medal-target");
+    let root = document.getElementById(HEADER_MEDALS_ID);
+    if (!root) {
+      root = createHeaderMedalShell();
+    }
+    if (root.parentElement !== target) {
+      mountHeaderMedalRoot(target, root);
+      medalState.signature = "";
+    }
+
+    observeHeaderTarget(target);
+    layoutHeaderMedals(false);
+  }
+
+  function createHeaderMedalShell() {
+    const root = document.createElement("span");
+    root.id = HEADER_MEDALS_ID;
+    root.className = "spx-header-medals";
+    root.innerHTML = `
+      <span class="spx-header-medal-list" role="group" aria-label="CS2 medals"></span>
+      <span class="spx-header-medal-navs" hidden>
+        <button class="spx-header-medal-nav" type="button" data-direction="previous" aria-label="Previous medals">${CHEVRON_GLYPHS.previous}</button>
+        <button class="spx-header-medal-nav" type="button" data-direction="next" aria-label="Next medals">${CHEVRON_GLYPHS.next}</button>
+      </span>
+    `;
+    root.addEventListener("click", handleMedalNavClick);
+    root.addEventListener("error", handleImageError, true);
+    return root;
+  }
+
+  function handleMedalNavClick(event) {
+    const button = event.target.closest(".spx-header-medal-nav");
+    const medalState = state.medals;
+    if (!button || button.disabled || !medalState.list.length) return;
+
+    if (button.dataset.direction === "previous") {
+      medalState.start = findMedalPageStart(medalState.slots, medalState.start - 1, medalState.listBudget);
+    } else {
+      medalState.start += medalState.count;
+    }
+
+    layoutHeaderMedals(true);
+
+    if (button.disabled) {
+      const other = button.parentElement.querySelector(`.spx-header-medal-nav:not([data-direction="${button.dataset.direction}"])`);
+      if (other && !other.disabled) {
+        other.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  function layoutHeaderMedals(force) {
+    const root = document.getElementById(HEADER_MEDALS_ID);
+    const target = root?.parentElement;
+    const medalState = state.medals;
+    const medals = medalState.list;
+    if (!root || !target || !medals.length) return;
+
+    const height = window.innerWidth <= 910 || target.clientWidth < 360 ? 24 : 28;
+    const slots = medals.map((medal) => getMedalSlotWidth(medal, height));
+    const budget = getMedalBudget(target);
+    const overflow = sumMedalSlots(slots, 0, slots.length) > budget;
+    // Paging only pays off when a page holds at least two medals; otherwise show what fits.
+    const paged = overflow && budget - MEDAL_NAV_WIDTH >= 2 * height + MEDAL_GAP;
+    const listBudget = paged ? budget - MEDAL_NAV_WIDTH : budget;
+
+    let start = 0;
+    let count = overflow && !paged ? fitMedalsForward(slots, 0, budget) : slots.length;
+    if (paged) {
+      start = Math.max(0, Math.min(medalState.start, slots.length - 1));
+      count = fitMedalsForward(slots, start, listBudget);
+      if (start + count >= slots.length) {
+        start = findMedalPageStart(slots, slots.length - 1, listBudget);
+        count = slots.length - start;
       }
     }
 
-    return {
-      ...leetifyProvider,
-      rankImage: "",
-      rankLabel: "",
-      metrics: leetifyMetrics
-    };
+    medalState.start = start;
+    medalState.count = count;
+    medalState.slots = slots;
+    medalState.listBudget = listBudget;
+
+    const signature = `${start}:${count}:${height}:${paged}`;
+    if (!force && medalState.signature === signature) return;
+    medalState.signature = signature;
+
+    root.classList.toggle("spx-header-medals-compact", height === 24);
+    const list = root.querySelector(".spx-header-medal-list");
+    list.innerHTML = medals.slice(start, start + count).map((medal) => renderHeaderMedal(medal, height)).join("");
+    list.setAttribute("aria-label", paged ? `CS2 medals ${start + 1}–${start + count} of ${medals.length}` : `CS2 medals (${medals.length})`);
+
+    const navs = root.querySelector(".spx-header-medal-navs");
+    navs.hidden = !paged;
+    navs.querySelector('[data-direction="previous"]').disabled = start <= 0;
+    navs.querySelector('[data-direction="next"]').disabled = start + count >= medals.length;
+  }
+
+  function renderHeaderMedal(medal, height) {
+    const width = getMedalWidth(medal, height);
+    const title = medal.title || "CS2 medal";
+    return `
+      <span class="spx-header-medal-item" data-spx-tip="${escapeAttribute(title)}">
+        <img class="spx-header-medal-image" src="${escapeAttribute(medal.image)}" ${width ? `width="${width}" ` : ""}height="${height}" alt="${escapeAttribute(title)}" decoding="async" />
+      </span>
+    `;
+  }
+
+  function getMedalWidth(medal, height) {
+    const width = Number(medal.width);
+    const naturalHeight = Number(medal.height);
+    return width > 0 && naturalHeight > 0 ? Math.max(1, Math.round((width * height) / naturalHeight)) : 0;
+  }
+
+  function getMedalSlotWidth(medal, height) {
+    return Math.max(MEDAL_MIN_SLOT, getMedalWidth(medal, height) || height);
+  }
+
+  function getMedalBudget(target) {
+    const width = target.clientWidth;
+    const name = target.querySelector(".actual_persona_name");
+    const arrow = target.querySelector(".namehistory_link");
+    const nickname = target.querySelector(".nickname");
+    const arrowWidth = arrow && arrow.getClientRects().length ? Math.ceil(arrow.getBoundingClientRect().width) + 6 : 0;
+    // The nickname is expendable: reserve at most 80px for it.
+    const nicknameWidth = nickname && nickname.getClientRects().length ? Math.min(Math.ceil(nickname.scrollWidth), 80) + 6 : 0;
+    const nameWidth = name ? Math.ceil(name.scrollWidth) : 0;
+    const free = width - nameWidth - nicknameWidth - arrowWidth - 12 - 1;
+    return Math.max(free, Math.min(width * 0.45, 200));
+  }
+
+  function sumMedalSlots(slots, start, end) {
+    let total = 0;
+    for (let index = start; index < end; index += 1) {
+      total += slots[index] + (index > start ? MEDAL_GAP : 0);
+    }
+    return total;
+  }
+
+  function fitMedalsForward(slots, start, budget) {
+    let used = 0;
+    let count = 0;
+    for (let index = start; index < slots.length; index += 1) {
+      const next = used + slots[index] + (count ? MEDAL_GAP : 0);
+      if (next > budget && count) break;
+      used = next;
+      count += 1;
+    }
+    return Math.max(1, count);
+  }
+
+  function findMedalPageStart(slots, end, budget) {
+    let start = Math.max(0, end);
+    let used = slots[start] || 0;
+    while (start > 0) {
+      const next = used + slots[start - 1] + MEDAL_GAP;
+      if (next > budget) break;
+      used = next;
+      start -= 1;
+    }
+    return start;
+  }
+
+  function observeHeaderTarget(target) {
+    const medalState = state.medals;
+    if (medalState.observer || typeof ResizeObserver !== "function") return;
+
+    medalState.observer = new ResizeObserver(() => layoutHeaderMedals(false));
+    medalState.observer.observe(target);
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => layoutHeaderMedals(false));
+    }
+  }
+
+  function resolveHeaderMedalTarget() {
+    return (
+      document.querySelector(".profile_header_centered_persona > .persona_name") ||
+      document.querySelector(".profile_header_centered_col .profile_header_centered_persona .persona_name")
+    );
+  }
+
+  function mountHeaderMedalRoot(target, root) {
+    const popup = target.querySelector("#NamePopup");
+    if (popup) {
+      target.insertBefore(root, popup);
+      return;
+    }
+
+    target.appendChild(root);
+  }
+
+  function clearHeaderMedals() {
+    const root = document.getElementById(HEADER_MEDALS_ID);
+    if (root) {
+      if (state.tooltipAnchor && root.contains(state.tooltipAnchor)) {
+        hideTooltip();
+      }
+      root.remove();
+    }
+
+    document.querySelectorAll(".spx-header-medal-target").forEach((target) => {
+      target.classList.remove("spx-header-medal-target");
+    });
+
+    const medalState = state.medals;
+    if (medalState.observer) {
+      medalState.observer.disconnect();
+    }
+    state.medals = { list: [], key: "", start: 0, count: 0, slots: [], listBudget: 0, signature: "", observer: null };
+  }
+
+  // ── Tooltip ───────────────────────────────────────
+
+  function installTooltip() {
+    document.addEventListener("mouseover", (event) => {
+      const anchor = findTooltipAnchor(event.target);
+      if (anchor && anchor !== state.tooltipAnchor) {
+        showTooltip(anchor);
+      }
+    }, true);
+
+    document.addEventListener("mouseout", (event) => {
+      const anchor = state.tooltipAnchor;
+      if (!anchor) return;
+      const next = event.relatedTarget;
+      if (next instanceof Node && anchor.contains(next)) return;
+      if (!(event.target instanceof Node) || !anchor.contains(event.target)) return;
+      hideTooltip();
+    }, true);
+
+    document.addEventListener("focusin", (event) => {
+      const anchor = findTooltipAnchor(event.target);
+      if (anchor) {
+        showTooltip(anchor);
+      } else if (state.tooltipAnchor) {
+        hideTooltip();
+      }
+    }, true);
+
+    document.addEventListener("focusout", (event) => {
+      if (state.tooltipAnchor && event.target === state.tooltipAnchor) {
+        hideTooltip();
+      }
+    }, true);
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        hideTooltip();
+      }
+    }, true);
+
+    window.addEventListener("scroll", hideTooltip, { capture: true, passive: true });
+    window.addEventListener("blur", hideTooltip);
+  }
+
+  function findTooltipAnchor(node) {
+    if (!(node instanceof Element)) return null;
+    const anchor = node.closest("[data-spx-tip], [data-spx-tip-title]");
+    return anchor && anchor.closest(ROOT_SELECTOR) ? anchor : null;
+  }
+
+  function ensureTooltip() {
+    let tooltip = document.getElementById(TOOLTIP_ID);
+    if (!tooltip) {
+      tooltip = document.createElement("div");
+      tooltip.id = TOOLTIP_ID;
+      tooltip.setAttribute("role", "tooltip");
+      tooltip.hidden = true;
+      (document.body || document.documentElement).appendChild(tooltip);
+    }
+    return tooltip;
+  }
+
+  function showTooltip(anchor) {
+    const title = anchor.getAttribute("data-spx-tip-title") || "";
+    const lines = String(anchor.getAttribute("data-spx-tip") || "").split("\n").map((line) => line.trim()).filter(Boolean);
+    const note = anchor.getAttribute("data-spx-tip-note") || "";
+    if (!title && !lines.length) {
+      hideTooltip();
+      return;
+    }
+
+    const tooltip = ensureTooltip();
+    const parts = [];
+    if (title) parts.push(makeTooltipLine(title, "spx-tooltip-title"));
+    lines.forEach((line) => parts.push(makeTooltipLine(line, "spx-tooltip-line")));
+    if (note) parts.push(makeTooltipLine(note, "spx-tooltip-note"));
+    tooltip.replaceChildren(...parts);
+
+    if (state.tooltipAnchor && state.tooltipAnchor !== anchor) {
+      state.tooltipAnchor.removeAttribute("aria-describedby");
+    }
+    state.tooltipAnchor = anchor;
+    anchor.setAttribute("aria-describedby", TOOLTIP_ID);
+
+    tooltip.hidden = false;
+    tooltip.classList.remove("spx-tooltip-visible");
+    positionTooltip(tooltip, anchor);
+    tooltip.classList.add("spx-tooltip-visible");
+  }
+
+  function makeTooltipLine(text, className) {
+    const line = document.createElement("div");
+    line.className = className;
+    line.textContent = text;
+    return line;
+  }
+
+  function positionTooltip(tooltip, anchor) {
+    const edge = 6;
+    const gap = 8;
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = document.documentElement.clientWidth || window.innerWidth;
+    const viewportHeight = document.documentElement.clientHeight || window.innerHeight;
+    tooltip.style.left = "0px";
+    tooltip.style.top = "0px";
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+
+    let placement = "top";
+    let top = rect.top - height - gap;
+    if (top < edge) {
+      placement = "bottom";
+      top = Math.min(rect.bottom + gap, viewportHeight - height - edge);
+    }
+
+    const center = rect.left + rect.width / 2;
+    const left = Math.max(edge, Math.min(center - width / 2, viewportWidth - width - edge));
+    const arrow = Math.max(10, Math.min(center - left, width - 10));
+
+    tooltip.dataset.placement = placement;
+    tooltip.style.left = `${Math.round(left)}px`;
+    tooltip.style.top = `${Math.round(Math.max(edge, top))}px`;
+    tooltip.style.setProperty("--spx-tip-arrow", `${Math.round(arrow)}px`);
+  }
+
+  function hideTooltip() {
+    const anchor = state.tooltipAnchor;
+    if (anchor) {
+      anchor.removeAttribute("aria-describedby");
+    }
+    state.tooltipAnchor = null;
+
+    const tooltip = document.getElementById(TOOLTIP_ID);
+    if (tooltip && !tooltip.hidden) {
+      tooltip.classList.remove("spx-tooltip-visible");
+      tooltip.hidden = true;
+    }
+  }
+
+  // ── Images ────────────────────────────────────────
+
+  function handleImageError(event) {
+    const image = event.target;
+    if (!(image instanceof HTMLImageElement)) return;
+
+    if (image.classList.contains("spx-match-map-icon")) {
+      const holder = document.createElement("span");
+      holder.innerHTML = renderMapFallback();
+      image.replaceWith(holder.firstElementChild);
+      return;
+    }
+
+    const medal = image.closest(".spx-header-medal-item");
+    (medal || image).hidden = true;
+  }
+
+  // ── Helpers ───────────────────────────────────────
+
+  function listOf(value) {
+    return Array.isArray(value) ? value.filter((item) => item && typeof item === "object") : [];
+  }
+
+  function textList(value) {
+    return Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : [];
+  }
+
+  function firstList(...lists) {
+    for (const list of lists) {
+      const items = listOf(list);
+      if (items.length) {
+        return items;
+      }
+    }
+    return [];
   }
 
   function escapeHtml(value) {
-    return String(value || "")
+    return String(value ?? "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
