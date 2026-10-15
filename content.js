@@ -951,6 +951,13 @@
       else if (action === "next") stepClipPlayer(1);
       else if (action === "fullscreen") toggleClipFullscreen();
     });
+    // Leaving full screen drops focus to <body>; put it back in the dialog so Tab stays trapped.
+    document.addEventListener("fullscreenchange", () => {
+      const current = state.player;
+      if (current.open && !document.fullscreenElement && !current.root.contains(document.activeElement)) {
+        current.close?.focus({ preventScroll: true });
+      }
+    });
 
     state.player = {
       ...state.player,
