@@ -390,20 +390,30 @@ function formatCalendarDate(value) {
 }
 
 
+// A GC server that just failed is skipped for a minute, so an overloaded or hanging server
+// costs one slow profile load instead of holding up every panel until the 5 s timeout.
+const GC_SERVER_RETRY_MS = 60 * 1000;
+const gcServerDownUntil = new Map();
+
 async function fetchGcProfile(steamId, settings) {
   const serverUrls = (settings?.gcServerUrls || [])
     .map((url) => String(url || "").trim().replace(/\/+$/, ""))
     .filter(Boolean);
 
   for (const serverUrl of serverUrls) {
+    if ((gcServerDownUntil.get(serverUrl) || 0) > Date.now()) continue;
     try {
       const data = await fetchJson(`${serverUrl}/profile/${steamId}`, {
         headers: { Accept: "application/json" }
       }, 5000);
-      if (data?.ok) return data;
+      if (data?.ok) {
+        gcServerDownUntil.delete(serverUrl);
+        return data;
+      }
     } catch (_err) {
-      // Unreachable or not ready: try the next server.
+      // Unreachable, hanging or not ready: try the next server.
     }
+    gcServerDownUntil.set(serverUrl, Date.now() + GC_SERVER_RETRY_MS);
   }
 
   return null;
