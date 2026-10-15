@@ -4,7 +4,7 @@
 
 Only runtime files go in the zip: the manifest's scripts/pages/icons, the popup's
 references, and the asset files matched by web_accessible_resources. Dev tooling
-(.dev, server, tools, store, README) stays out.
+(.dev, server, tools, store, site, README) stays out.
 """
 import fnmatch
 import json

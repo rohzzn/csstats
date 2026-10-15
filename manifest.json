@@ -54,6 +54,14 @@
       "matches": [
         "https://steamcommunity.com/*"
       ]
+    },
+    {
+      "resources": [
+        "icon48.png"
+      ],
+      "matches": [
+        "https://csstats.rohan.my/*"
+      ]
     }
   ],
   "icons": {

@@ -47,6 +47,9 @@ WHAT HAVE THEY BEEN PLAYING?
 • Their last 10 matches with map, mode, score and K-D, coloured by result
 • Their best-rated Allstar clips: click one to watch it big or full screen, and flip through the rest
 
+USE IT IN-GAME
+In CS2, press Shift+Tab, open the web browser, go to csstats.rohan.my and click Add to Steam. From then on, every Steam profile you open in the overlay shows the stats.
+
 FEELS LIKE PART OF STEAM
 • Matches every Steam profile theme and works at any window size
 • Loads only on profile pages and caches results for a few minutes
@@ -65,6 +68,7 @@ CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT or Allstar.
 
 ```
 • Commendations, CS level, Premier season medals and coins now show for everyone, no setup needed
+• New install page, csstats.rohan.my: add CS Stats to Steam's in-game browser in a couple of clicks
 ```
 
 ## What's new in 1.2.0
@@ -79,6 +83,10 @@ CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT or Allstar.
 • Leetify stats and matches load again (moved to Leetify's new public API)
 • Much smaller download: about 23 MB, down from over 140 MB
 ```
+
+## Website
+
+Homepage URL field: `https://csstats.rohan.my` (the install page; it also tells people when CS Stats is installed and on).
 
 ## Category / language
 
@@ -99,6 +107,7 @@ Shows Counter-Strike 2 statistics for the player whose Steam Community profile y
 - **https://a1.allstar.gg/\***: Allstar API for the player's CS2 clips.
 - **http://127.0.0.1/\***, **http://localhost/\***: optional self-hosted Game Coordinator server run by the user (CS level, commendations, medals).
 - **https://csstats.rohan.my** (no host permission; the server allows the extension via CORS): the public CS Stats Game Coordinator server for CS level, commendations and medals. Only the viewed profile's Steam64 ID is sent.
+- **web_accessible_resources** `icon48.png` for `https://csstats.rohan.my/*`: lets the install page show "installed and on". No permission prompt.
 - **Remote code**: none. All code ships in the package.
 
 ## Data usage (privacy practices tab)

@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en" data-env="web" data-installed="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Add CS Stats to Steam</title>
+<meta name="description" content="See any CS2 player's Premier and FACEIT ratings, a cheating verdict, recent matches and best clips right on their Steam profile, even from the in-game overlay.">
+<meta name="theme-color" content="#171a21">
+<link rel="icon" type="image/png" href="/icon.png">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://csstats.rohan.my/">
+<meta property="og:title" content="CS Stats: is this CS2 player any good, or cheating?">
+<meta property="og:description" content="Premier and FACEIT ratings, a cheating verdict, recent matches and best clips on every Steam profile. Free.">
+<meta property="og:image" content="https://csstats.rohan.my/og.jpg">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="800">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root {
+    --bg: #1b2838;
+    --bg-deep: #171a21;
+    --card: #16202d;
+    --line: rgba(102, 192, 244, 0.16);
+    --text: #c7d5e0;
+    --muted: #8f98a0;
+    --white: #ffffff;
+    --blue: #66c0f4;
+    --ok: #a4d007;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    background:
+      radial-gradient(1100px 520px at 12% -10%, rgba(102, 192, 244, 0.16), transparent 60%),
+      radial-gradient(900px 480px at 100% 110%, rgba(164, 208, 7, 0.07), transparent 60%),
+      linear-gradient(180deg, var(--bg-deep) 0%, var(--bg) 340px, var(--bg) 100%);
+    color: var(--text);
+    font: 16px/1.55 "Motiva Sans", "Segoe UI", Arial, Helvetica, sans-serif;
+  }
+  a { color: var(--blue); }
+  .top {
+    padding: 18px 24px;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.35);
+    background: rgba(23, 26, 33, 0.7);
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--white);
+    font-weight: 700;
+    font-size: 18px;
+    letter-spacing: 0.02em;
+    text-decoration: none;
+  }
+  .brand img { border-radius: 6px; }
+  main {
+    flex: 1;
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 48px 24px 40px;
+    display: grid;
+    gap: 40px;
+    align-items: center;
+  }
+  @media (min-width: 960px) {
+    main { grid-template-columns: minmax(0, 1fr) minmax(0, 560px); gap: 56px; padding-top: 72px; }
+  }
+  @media (max-width: 959px) {
+    main { max-width: 680px; }
+  }
+  h1 {
+    margin: 0 0 14px;
+    color: var(--white);
+    font-size: clamp(30px, 5vw, 46px);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  .lede { margin: 0 0 28px; max-width: 34em; font-size: 17px; }
+  .card {
+    background: linear-gradient(180deg, rgba(42, 71, 94, 0.55), rgba(22, 32, 45, 0.9));
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 24px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  }
+  .btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 56px;
+    padding: 12px 20px;
+    border-radius: 3px;
+    font-size: 19px;
+    font-weight: 700;
+    text-decoration: none;
+    text-align: center;
+    transition: filter 0.15s ease, background 0.15s ease;
+  }
+  .btn-green {
+    color: #d2efa9;
+    background: linear-gradient(to right, #75b022 5%, #588a1b 95%);
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
+  }
+  .btn-green:hover { color: var(--white); background: linear-gradient(to right, #8ed629 5%, #6aa621 95%); }
+  .btn-blue {
+    color: var(--white);
+    background: linear-gradient(to right, #47bfff 5%, #1a44c2 95%);
+  }
+  .btn-blue:hover { filter: brightness(1.12); }
+  .btn:focus-visible, a:focus-visible { outline: 2px solid var(--white); outline-offset: 3px; }
+  .btn svg { flex: none; }
+  .steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 22px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 12px;
+  }
+  .steps li {
+    counter-increment: step;
+    position: relative;
+    padding-left: 40px;
+    min-height: 28px;
+  }
+  .steps li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: rgba(102, 192, 244, 0.15);
+    color: var(--blue);
+    font-weight: 700;
+    font-size: 14px;
+  }
+  b { color: var(--white); font-weight: 600; }
+  .hint { margin: 14px 0 0; color: var(--muted); font-size: 14px; text-align: center; }
+  .ok {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 18px;
+    color: var(--white);
+    font-size: 19px;
+    font-weight: 700;
+  }
+  .ok svg { flex: none; color: var(--ok); }
+  .ingame {
+    margin-top: 22px;
+    padding: 20px 24px;
+    border: 1px dashed rgba(143, 152, 160, 0.35);
+    border-radius: 6px;
+  }
+  .ingame h2 { margin: 0 0 6px; color: var(--white); font-size: 17px; }
+  .ingame p { margin: 0; }
+  .addr {
+    margin: 10px 0 !important;
+    color: var(--blue);
+    font: 700 22px/1.3 Consolas, "SFMono-Regular", Menlo, monospace;
+    letter-spacing: 0.01em;
+    overflow-wrap: anywhere;
+  }
+  kbd {
+    display: inline-block;
+    padding: 1px 7px;
+    border: 1px solid rgba(199, 213, 224, 0.3);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.25);
+    color: var(--white);
+    font: 600 13px/1.5 "Motiva Sans", "Segoe UI", Arial, sans-serif;
+  }
+  .shot { margin: 0; }
+  .shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 8px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  }
+  footer {
+    padding: 22px 24px 28px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+  }
+  footer a { color: var(--text); }
+
+  /* Which variant shows: inside Steam's browser vs a normal browser, installed or not. */
+  .on-steam { display: none; }
+  html[data-env="steam"] .on-steam { display: inline; }
+  html[data-env="steam"] .on-web, html[data-env="steam"] .on-web-block { display: none; }
+  html:not([data-env="steam"]) .on-steam-block { display: none; }
+  .state-installed { display: none; }
+  html[data-installed="yes"] .state-installed { display: block; }
+  html[data-installed="yes"] .state-add, html[data-installed="yes"] .ingame { display: none; }
+
+  @media (max-width: 480px) {
+    main { padding: 28px 16px 28px; gap: 28px; }
+    .top { padding: 14px 16px; }
+    .card { padding: 18px; }
+    .ingame { padding: 16px 18px; }
+    .btn { font-size: 18px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+</style>
+</head>
+<body>
+  <header class="top">
+    <a class="brand" href="/"><img src="/icon.png" width="28" height="28" alt="">CS Stats</a>
+  </header>
+
+  <main>
+    <section>
+      <h1>Add CS Stats to Steam</h1>
+      <p class="lede">Check any CS2 player in seconds: Premier and FACEIT ratings, a cheating verdict, their last matches and best clips, right on their Steam profile. Even from the in-game overlay.</p>
+
+      <div class="card">
+        <div class="state-installed" role="status">
+          <p class="ok">
+            <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor" opacity="0.18"/><path d="M7 12.5l3.2 3.2L17.5 8.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            CS Stats is installed and on
+          </p>
+          <a class="btn btn-blue" href="https://steamcommunity.com/my/">Open my Steam profile</a>
+          <p class="hint">Open any player's profile and their stats appear under it.</p>
+        </div>
+
+        <div class="state-add">
+          <a class="btn btn-green" id="add" href="https://chromewebstore.google.com/detail/cs-stats/fdnhgmlohooaabloinhbgmkhpebckapp" target="_blank" rel="noopener">
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+            <span class="on-steam">Add to Steam</span><span class="on-web">Add to Chrome</span>
+          </a>
+          <ol class="steps on-steam-block">
+            <li>Click <b>Add to Steam</b>. The store opens in a new window.</li>
+            <li>Click <b>Add to Chrome</b>, then <b>Add extension</b>.</li>
+            <li>Close that window and open any Steam profile. The stats appear under it.</li>
+          </ol>
+          <p class="hint on-web-block">Free. Works in Chrome, Edge, Brave and Opera GX on your PC.</p>
+        </div>
+      </div>
+
+      <div class="ingame on-web-block">
+        <h2>Use it in-game</h2>
+        <p>In CS2, press <kbd>Shift</kbd> + <kbd>Tab</kbd>, open the <b>web browser</b> and go to</p>
+        <p class="addr">csstats.rohan.my</p>
+        <p>Then click <b>Add to Steam</b>. It takes about ten seconds.</p>
+      </div>
+    </section>
+
+    <figure class="shot">
+      <img src="/panel.webp" srcset="/panel-sm.webp 536w, /panel.webp 1072w" sizes="(min-width: 960px) 560px, calc(100vw - 32px)" width="1072" height="512"
+        alt="The CS Stats panel on a Steam profile: commendations, Premier season medals, a Legit verdict, Premier and FACEIT ratings, aim, K/D, win rate and map ranks">
+    </figure>
+  </main>
+
+  <footer>
+    Free and open source · <a href="https://github.com/rohzzn/csstats">GitHub</a> · Not affiliated with Valve or Steam
+  </footer>
+
+<script>
+  (function () {
+    var EXTENSION_ID = "fdnhgmlohooaabloinhbgmkhpebckapp";
+    var root = document.documentElement;
+    // Steam's built-in browser (client and in-game overlay) identifies itself as "Valve Steam ...".
+    if (/Valve Steam/i.test(navigator.userAgent)) root.setAttribute("data-env", "steam");
+
+    // CS Stats exposes its icon to this site only, so a successful load means it is installed and enabled.
+    function check() {
+      var img = new Image();
+      img.onload = function () { root.setAttribute("data-installed", "yes"); };
+      img.onerror = function () { root.setAttribute("data-installed", "no"); };
+      img.src = "chrome-extension://" + EXTENSION_ID + "/icon48.png";
+    }
+    check();
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
+
+    // After "Add" is clicked, keep checking for a few minutes so the page flips to "installed" by itself.
+    var polling = null;
+    document.getElementById("add").addEventListener("click", function () {
+      if (polling) return;
+      var tries = 0;
+      polling = setInterval(function () {
+        check();
+        if (++tries >= 90 || root.getAttribute("data-installed") === "yes") { clearInterval(polling); polling = null; }
+      }, 2000);
+    });
+  })();
+</script>
+</body>
+</html>
