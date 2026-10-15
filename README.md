@@ -48,9 +48,11 @@ Search for **CS Stats** or install directly from the store listing.
 3. Click **Load unpacked**
 4. Select this folder
 
-## Local Steam stats server
+## Steam stats server
 
-CS level, commendations and header medals come from a small optional server on this computer. It connects to the CS2 Game Coordinator using a spare Steam account and exposes a local HTTP API the extension calls at `http://127.0.0.1:3000`.
+CS level, commendations, Premier season medals and header medals come from a small server that connects to the CS2 Game Coordinator using a spare Steam account. The extension calls the public instance at `https://csstats.rohan.my` (only `/profile/<steam64>` is exposed, through a Cloudflare Tunnel), and falls back to a self-hosted server on this computer at `http://127.0.0.1:3000`.
+
+To self-host your own copy, follow the steps below.
 
 ### Prerequisites
 

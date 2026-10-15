@@ -1,6 +1,6 @@
-# Chrome Web Store listing — CS Stats 1.2.0
+# Chrome Web Store listing — CS Stats 1.2.1
 
-Package: `dist/cs-stats-1.2.0.zip` (build with `python tools/build-zip.py`)
+Package: `dist/cs-stats-1.2.1.zip` (build with `python tools/build-zip.py`)
 
 ## Store images (all 24-bit PNG, no alpha)
 
@@ -39,6 +39,10 @@ HOW GOOD ARE THEY?
 • Time to damage, utility rating, account age and total matches across Premier, Competitive, Wingman and FACEIT
 • Wingman rank and competitive rank for every map
 
+THEIR CS2 PROFILE
+• CS level, commendations (friendly, teacher, leader) and every Premier season medal
+• Coins, pins and service medals, straight from the CS2 Game Coordinator
+
 WHAT HAVE THEY BEEN PLAYING?
 • Their last 10 matches with map, mode, score and K-D, coloured by result
 • Their best-rated Allstar clips: click one to watch it big or full screen, and flip through the rest
@@ -48,16 +52,19 @@ FEELS LIKE PART OF STEAM
 • Loads only on profile pages and caches results for a few minutes
 • Two settings, peak or current for Premier and FACEIT, saved with your Chrome profile
 
-POWER USERS
-Run the free companion server (instructions on GitHub) to also show commendations, Premier season medals and CS2 coins and service medals, pulled live from the CS2 Game Coordinator.
-
 PRIVACY
-Stats come from Leetify, FACEIT, the Steam Web API and Allstar, looked up by the Steam ID of the profile you're viewing. Nothing about you is collected or sent anywhere.
+Stats come from Leetify, FACEIT, the Steam Web API, Allstar and the CS Stats server (for CS level, commendations and medals), looked up by the Steam ID of the profile you're viewing. Nothing about you is collected or stored.
 
 A NOTE ON THE VERDICT
 It's an estimate from public stats, not proof. Great players can look suspicious and careful cheaters can look clean, so please don't harass or report anyone based on the verdict alone.
 
 CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT or Allstar.
+```
+
+## What's new in 1.2.1
+
+```
+• Commendations, CS level, Premier season medals and coins now show for everyone, no setup needed
 ```
 
 ## What's new in 1.2.0
@@ -90,11 +97,12 @@ Shows Counter-Strike 2 statistics for the player whose Steam Community profile y
 - **https://open.faceit.com/\***: FACEIT Data API for level, ELO and lifetime stats.
 - **https://www.faceit.com/\***: FACEIT match history, used to find the peak ELO.
 - **https://a1.allstar.gg/\***: Allstar API for the player's CS2 clips.
-- **http://127.0.0.1/\***, **http://localhost/\***: optional local Game Coordinator server run by the user (CS level, commendations, medals).
+- **http://127.0.0.1/\***, **http://localhost/\***: optional self-hosted Game Coordinator server run by the user (CS level, commendations, medals).
+- **https://csstats.rohan.my** (no host permission; the server allows the extension via CORS): the public CS Stats Game Coordinator server for CS level, commendations and medals. Only the viewed profile's Steam64 ID is sent.
 - **Remote code**: none. All code ships in the package.
 
 ## Data usage (privacy practices tab)
 
-- The extension reads the Steam64 ID of the profile page being viewed and sends it to the services above to look up that player's public stats.
+- The extension reads the Steam64 ID of the profile page being viewed and sends it to the services above (including the CS Stats server at csstats.rohan.my) to look up that player's public stats.
 - It does not collect, store or transmit personal data about the person using the extension. Only the two display preferences are saved, in Chrome sync storage.
 - No data is sold, used for advertising, or used for creditworthiness.

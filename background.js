@@ -11,7 +11,9 @@ const SETTINGS = Object.freeze({
   faceitApiKey: "b0ce56e8-e9a2-45e7-82ee-7310a0549d0f",
   enableLeetify: true,
   enableFaceit: true,
-  gcServerUrl: "http://127.0.0.1:3000",
+  // Public GC server first; a self-hosted server on this machine is the fallback.
+  // The public server answers with CORS headers for extension origins, so it needs no host permission.
+  gcServerUrls: ["https://csstats.rohan.my", "http://127.0.0.1:3000"],
   allstarPublicKey: "3b717a42-ef7e-48d6-bd12-eba0daad9d7f",
   allstarServerKey: "90a30aed-0dfe-4220-9ac6-4e5c36a7c559",
   cacheTtlMs: 5 * 60 * 1000
@@ -388,17 +390,32 @@ function formatCalendarDate(value) {
 }
 
 
+async function fetchGcProfile(steamId, settings) {
+  const serverUrls = (settings?.gcServerUrls || [])
+    .map((url) => String(url || "").trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+
+  for (const serverUrl of serverUrls) {
+    try {
+      const data = await fetchJson(`${serverUrl}/profile/${steamId}`, {
+        headers: { Accept: "application/json" }
+      }, 5000);
+      if (data?.ok) return data;
+    } catch (_err) {
+      // Unreachable or not ready: try the next server.
+    }
+  }
+
+  return null;
+}
+
 async function fetchGcData(steamId, settings) {
-  const serverUrl = String(settings?.gcServerUrl || "").trim().replace(/\/+$/, "");
-  if (!serverUrl) return makeProviderResult("gc", "disabled", {});
   const steamProfileUrl = `https://steamcommunity.com/profiles/${steamId}`;
 
   try {
-    const data = await fetchJson(`${serverUrl}/profile/${steamId}`, {
-      headers: { Accept: "application/json" }
-    }, 5000);
+    const data = await fetchGcProfile(steamId, settings);
 
-    if (!data?.ok) {
+    if (!data) {
       return makeProviderResult("gc", "disabled", {});
     }
 
