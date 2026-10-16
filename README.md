@@ -46,7 +46,7 @@ Search for **CS Stats** or install directly from the [store listing](https://chr
 Steam's overlay browser (Shift+Tab in CS2) can install Chrome Web Store extensions, but only from inside the overlay: `steam://openurl` links from outside Steam open in the system browser instead. So the install page at **[csstats.rohan.my](https://csstats.rohan.my)** is made to be typed into the overlay:
 
 1. In CS2, press **Shift+Tab**, open the **web browser** and go to `csstats.rohan.my`.
-2. Click **Add to Steam**. The store opens in a new window; click **Add to Chrome**, then **Add extension**.
+2. Click **Add to Steam**. The store opens in the same overlay window (a new window would be handed to the desktop browser); click **Add to Chrome**, then **Add extension**.
 3. The page switches to **installed and on** by itself (1.2.1+), and every profile opened in the overlay shows the stats.
 
 The page is `site/` (static files). On the Mac it is served from `~/srv/csstats-site/public` by Caddy on `127.0.0.1:8095` (launchd agent `my.rohan.csstats.site`), and the `csstats` Cloudflare tunnel routes every `csstats.rohan.my` path except the API to it. To update it, copy `site/*` to `~/srv/csstats-site/public/`.

@@ -160,21 +160,24 @@
     font-weight: 700;
   }
   .ok svg { flex: none; color: var(--ok); }
-  .ingame {
-    margin-top: 22px;
-    padding: 20px 24px;
-    border: 1px dashed rgba(143, 152, 160, 0.35);
-    border-radius: 6px;
-  }
-  .ingame h2 { margin: 0 0 6px; color: var(--white); font-size: 17px; }
-  .ingame p { margin: 0; }
+  .card-title { margin: 0 0 6px; color: var(--white); font-size: 20px; line-height: 1.3; }
+  .card-note { margin: 0; color: var(--text); }
+  .on-web-block .steps { margin-top: 16px; }
   .addr {
-    margin: 10px 0 !important;
     color: var(--blue);
-    font: 700 22px/1.3 Consolas, "SFMono-Regular", Menlo, monospace;
+    font: 700 18px/1.3 Consolas, "SFMono-Regular", Menlo, monospace;
     letter-spacing: 0.01em;
     overflow-wrap: anywhere;
   }
+  .divider { height: 1px; margin: 22px 0 16px; background: var(--line); }
+  .btn.btn-secondary {
+    min-height: 46px;
+    margin-top: 12px;
+    font-size: 16px;
+    color: #dfe3e6;
+    background: rgba(103, 193, 245, 0.12);
+  }
+  .btn.btn-secondary:hover { color: var(--white); background: rgba(103, 193, 245, 0.24); }
   kbd {
     display: inline-block;
     padding: 1px 7px;
@@ -202,19 +205,16 @@
   footer a { color: var(--text); }
 
   /* Which variant shows: inside Steam's browser vs a normal browser, installed or not. */
-  .on-steam { display: none; }
-  html[data-env="steam"] .on-steam { display: inline; }
-  html[data-env="steam"] .on-web, html[data-env="steam"] .on-web-block { display: none; }
+  html[data-env="steam"] .on-web-block { display: none; }
   html:not([data-env="steam"]) .on-steam-block { display: none; }
   .state-installed { display: none; }
   html[data-installed="yes"] .state-installed { display: block; }
-  html[data-installed="yes"] .state-add, html[data-installed="yes"] .ingame { display: none; }
+  html[data-installed="yes"] .state-add { display: none; }
 
   @media (max-width: 480px) {
     main { padding: 28px 16px 28px; gap: 28px; }
     .top { padding: 14px 16px; }
     .card { padding: 18px; }
-    .ingame { padding: 16px 18px; }
     .btn { font-size: 18px; }
   }
   @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
@@ -241,24 +241,36 @@
         </div>
 
         <div class="state-add">
-          <a class="btn btn-green" id="add" href="https://chromewebstore.google.com/detail/cs-stats/fdnhgmlohooaabloinhbgmkhpebckapp" target="_blank" rel="noopener">
-            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
-            <span class="on-steam">Add to Steam</span><span class="on-web">Add to Chrome</span>
-          </a>
-          <ol class="steps on-steam-block">
-            <li>Click <b>Add to Steam</b>. The store opens in a new window.</li>
-            <li>Click <b>Add to Chrome</b>, then <b>Add extension</b>.</li>
-            <li>Close that window and open any Steam profile. The stats appear under it.</li>
-          </ol>
-          <p class="hint on-web-block">Free. Works in Chrome, Edge, Brave and Opera GX on your PC.</p>
-        </div>
-      </div>
+          <!-- Inside Steam's browser. The store opens in this same window: Steam sends new windows to the desktop browser. -->
+          <div class="on-steam-block">
+            <a class="btn btn-green" data-add href="https://chromewebstore.google.com/detail/cs-stats/fdnhgmlohooaabloinhbgmkhpebckapp">
+              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+              Add to Steam
+            </a>
+            <ol class="steps">
+              <li>Click <b>Add to Steam</b>. The Chrome Web Store opens right here, inside Steam.</li>
+              <li>Click <b>Add to Chrome</b>, then <b>Add extension</b>.</li>
+              <li>Open any Steam profile. The stats appear under it.</li>
+            </ol>
+          </div>
 
-      <div class="ingame on-web-block">
-        <h2>Use it in-game</h2>
-        <p>In CS2, press <kbd>Shift</kbd> + <kbd>Tab</kbd>, open the <b>web browser</b> and go to</p>
-        <p class="addr">csstats.rohan.my</p>
-        <p>Then click <b>Add to Steam</b>. It takes about ten seconds.</p>
+          <!-- Any other browser: websites can't open Steam's browser, so explain the in-game route first. -->
+          <div class="on-web-block">
+            <h2 class="card-title">Add it to Steam</h2>
+            <p class="card-note">Steam only lets you add it from inside Steam. In-game it takes ten seconds:</p>
+            <ol class="steps">
+              <li>In CS2, press <kbd>Shift</kbd> + <kbd>Tab</kbd> and open the <b>web browser</b>.</li>
+              <li>Go to <span class="addr">csstats.rohan.my</span></li>
+              <li>Click <b>Add to Steam</b>, then <b>Add to Chrome</b>.</li>
+            </ol>
+            <div class="divider" role="presentation"></div>
+            <p class="card-note">Using Chrome, Edge, Brave or Opera GX on this PC?</p>
+            <a class="btn btn-secondary" data-add href="https://chromewebstore.google.com/detail/cs-stats/fdnhgmlohooaabloinhbgmkhpebckapp">
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+              Add to Chrome
+            </a>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -290,16 +302,8 @@
     window.addEventListener("focus", check);
     document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
 
-    // After "Add" is clicked, keep checking for a few minutes so the page flips to "installed" by itself.
-    var polling = null;
-    document.getElementById("add").addEventListener("click", function () {
-      if (polling) return;
-      var tries = 0;
-      polling = setInterval(function () {
-        check();
-        if (++tries >= 90 || root.getAttribute("data-installed") === "yes") { clearInterval(polling); polling = null; }
-      }, 2000);
-    });
+    // The store opens in this tab; when people come back (Back button or bfcache), check again.
+    window.addEventListener("pageshow", check);
   })();
 </script>
 </body>
