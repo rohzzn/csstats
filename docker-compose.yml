@@ -5,6 +5,10 @@ services:
     container_name: csstats-steam-stats
     restart: unless-stopped
     init: true
+    # Resolve Steam directly so a local DNS filter (Pi-hole, AdGuard) stalling can't break the GC login.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     env_file:
       - ./server/.env
     environment:
