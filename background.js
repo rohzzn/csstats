@@ -22,6 +22,7 @@ const SETTINGS = Object.freeze({
 const PROVIDER_ORDER = ["steam", "gc", "faceit", "leetify", "allstar"];
 const LEETIFY_API_BASE = "https://api-public.cs-prod.leetify.com";
 const LEETIFY_MATCH_LIMIT = 10;
+const CLIP_LIMIT = 12; // three rows of four
 const LEETIFY_KD_SAMPLE_SIZE = 30;
 const YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
 const VERDICT_DISCLAIMER = "Estimate from public stats, not proof.";
@@ -929,6 +930,15 @@ async function fetchLeetifyData(steamId, settings) {
   if (profileResult.status === "rejected") {
     const error = profileResult.reason;
     if (isLeetifyMissingProfileError(error)) {
+      // The public API only knows Leetify's own users. Leetify's site also has everyone seen in their
+      // matches, so fall back to that data (fetched through the CS Stats server, which allows this extension).
+      const site = await fetchLeetifySiteProfile(steamId, settings);
+      if (site) {
+        const { profile, matches } = convertLeetifySiteProfile(site, steamId);
+        const normalized = normalizeLeetifyProfile(profile, indexLeetifyMatchStats(matches, steamId), profileUrl);
+        // The site data has no banned-player flags, so leave "played with banned" out rather than show 0.
+        return { ...normalized, stats: { ...normalized.stats, bannedLobbies: null, bannedLobbySample: null } };
+      }
       return makeProviderResult("leetify", "not_found", { url: profileUrl });
     }
 
@@ -961,6 +971,96 @@ async function fetchLeetifyData(steamId, settings) {
     ...normalized,
     stats: { ...normalized.stats, ...summarizeBannedLobbies(matchesResult.status === "fulfilled" ? matchesResult.value : null) },
     partial: matchesResult.status !== "fulfilled"
+  };
+}
+
+async function fetchLeetifySiteProfile(steamId, settings) {
+  const serverUrls = (settings?.gcServerUrls || [])
+    .map((url) => String(url || "").trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+
+  for (const serverUrl of serverUrls) {
+    if ((gcServerDownUntil.get(serverUrl) || 0) > Date.now()) continue;
+    try {
+      const data = await fetchJson(`${serverUrl}/providers/leetify/${steamId}`, {
+        headers: { Accept: "application/json" }
+      }, 8000);
+      if (data?.recent || data?.history?.games?.length) return data;
+    } catch (error) {
+      // 404 means Leetify has nothing on this player; anything else, try the next server.
+      if (error?.status === 404) return null;
+    }
+  }
+
+  return null;
+}
+
+// Reshape Leetify's site data (meta, sidebar-games, recent-games/5v5, match-history) into the public v3
+// profile and matches shapes, so the rest of the pipeline treats both sources the same way.
+function convertLeetifySiteProfile(site, steamId) {
+  const recent = site?.recent || {};
+  const sidebar = site?.sidebar || {};
+  const games = Array.isArray(site?.history?.games) ? site.history.games : [];
+  const sidebarRanks = Array.isArray(sidebar.ranks) ? sidebar.ranks : [];
+  const rankFor = (source) => sidebarRanks.find((rank) => rank?.dataSource === source) || null;
+  const premier = rankFor("matchmaking");
+  const wingman = rankFor("matchmaking_wingman");
+  const totalMatches = Object.values(sidebar.platforms || {})
+    .reduce((sum, platform) => sum + (asNumber(platform?.totalGames) || 0), 0);
+
+  // Leetify hides match dates for players who haven't joined it. The list is newest first, and the
+  // stable sorts downstream keep that order when every date is empty.
+  const recentMatches = games.map((game, index) => ({
+    id: `leetify-site-${index}`,
+    finished_at: "",
+    data_source: game?.dataSource,
+    outcome: game?.matchResult,
+    rank: game?.rank,
+    rank_type: game?.matchmakingRankType,
+    map_name: game?.mapName,
+    leetify_rating: game?.leetifyRating,
+    score: game?.scores
+  }));
+
+  // Newest competitive rank per map, as the public API's ranks.competitive.
+  const competitive = [];
+  for (const game of games) {
+    if (asNumber(game?.matchmakingRankType) !== 12 || !game?.mapName) continue;
+    if (competitive.some((entry) => entry.map_name === game.mapName)) continue;
+    competitive.push({ map_name: game.mapName, rank: game.rank });
+  }
+
+  return {
+    profile: {
+      name: site?.meta?.name || "",
+      privacy_mode: "public",
+      winrate: recent.winRate,
+      total_matches: totalMatches || recent.matchesPlayed,
+      first_match_date: null,
+      bans: [],
+      ranks: {
+        premier: premier?.latest,
+        premier_peak: premier?.max,
+        wingman: wingman?.latest,
+        competitive
+      },
+      rating: {
+        aim: recent.aimRating,
+        utility: recent.utilityRating
+      },
+      stats: {
+        reaction_time_ms: recent.reactionTime,
+        preaim: recent.preaim,
+        accuracy_head: recent.accuracyHead,
+        accuracy_enemy_spotted: recent.accuracyEnemySpotted
+      },
+      recent_matches: recentMatches
+    },
+    matches: recentMatches.map((match, index) => ({
+      id: match.id,
+      finished_at: "",
+      stats: [{ steam64_id: steamId, total_kills: games[index]?.kills, total_deaths: games[index]?.deaths }]
+    }))
   };
 }
 
@@ -1104,6 +1204,7 @@ function resolveLeetifyRecentKd(matchStats) {
 function resolveLeetifyPeakPremier(ranks, recentMatches) {
   const values = [
     asNumber(ranks?.premier),
+    asNumber(ranks?.premier_peak),
     ...recentMatches
       .filter((match) => asNumber(match?.rank_type) === 11)
       .map((match) => asNumber(match?.rank))
@@ -1331,20 +1432,26 @@ async function fetchAllstarData(steamId, settings) {
       return makeProviderResult("allstar", "not_found", {});
     }
 
-    // Step 2: fetch their best-rated CS2 clips (Allstar's own "Best" ranking)
-    const clipsRes = await postJson(GRAPHQL, {
+    // Step 2: fetch their best-rated CS2 clips (Allstar's own "Best" ranking). Pages hold 10 clips,
+    // so a second page is needed to fill three rows of four.
+    const fetchClipsPage = (page) => postJson(GRAPHQL, {
       query: `query($page:Int!,$user:String!,$game:Int){
         videos:clips(search:best,page:$page,user:$user,mobile:false,game:$game){
           data{ _id clipTitle clipImageThumb clipLink views createdDate }
         }
       }`,
-      variables: { page: 1, user: user._id, game: 7302 }
-    }, { headers });
+      variables: { page, user: user._id, game: 7302 }
+    }, { headers }).then((res) => res?.data?.videos?.data || []);
 
-    const rawClips = clipsRes?.data?.videos?.data || [];
+    const rawClips = await fetchClipsPage(1);
+    if (rawClips.length >= 10) {
+      rawClips.push(...await fetchClipsPage(2).catch(() => []));
+    }
+
+    const seenClipIds = new Set();
     const clips = rawClips
-      .filter((c) => c._id && c.clipImageThumb)
-      .slice(0, 8)
+      .filter((c) => c._id && c.clipImageThumb && !seenClipIds.has(c._id) && seenClipIds.add(c._id))
+      .slice(0, CLIP_LIMIT)
       .map((c) => ({
         id:        c._id,
         title:     c.clipTitle || "CS2 Clip",

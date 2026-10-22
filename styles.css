@@ -1054,14 +1054,9 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-@container spx (min-width: 600px) {
-  #spx-cs2-clips-intel .spx-clips-grid[data-count="7"] {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
+/* Up to three rows: 3, 5, 6 and 9 clips sit in threes; 7, 8 and 10–12 in fours. */
 @container spx (min-width: 480px) {
-  #spx-cs2-clips-intel .spx-clips-grid[data-count="8"] {
+  #spx-cs2-clips-intel .spx-clips-grid:is([data-count="7"], [data-count="8"], [data-count="10"], [data-count="11"], [data-count="12"]) {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
@@ -1076,8 +1071,13 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
-  #spx-cs2-clips-intel .spx-clips-grid:is([data-count="3"], [data-count="5"], [data-count="7"]) > .spx-clip:first-child {
+  #spx-cs2-clips-intel .spx-clips-grid:is([data-count="3"], [data-count="5"]) > .spx-clip:first-child {
     grid-column: 1 / -1;
+  }
+
+  /* Three rows of two on narrow screens; the rest stay reachable in the player with the arrows. */
+  #spx-cs2-clips-intel .spx-clips-grid > .spx-clip:nth-child(n + 7) {
+    display: none;
   }
 }
 

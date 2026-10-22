@@ -1,6 +1,6 @@
-# Chrome Web Store listing — CS Stats 1.2.1
+# Chrome Web Store listing — CS Stats 1.2.2
 
-Package: `dist/cs-stats-1.2.1.zip` (build with `python tools/build-zip.py`)
+Package: `dist/cs-stats-1.2.2.zip` (build with `python tools/build-zip.py`)
 
 ## Store images (all 24-bit PNG, no alpha)
 
@@ -45,7 +45,7 @@ THEIR CS2 PROFILE
 
 WHAT HAVE THEY BEEN PLAYING?
 • Their last 10 matches with map, mode, score and K-D, coloured by result
-• Their best-rated Allstar clips: click one to watch it big or full screen, and flip through the rest
+• Their 12 best-rated Allstar clips: click one to watch it big or full screen, and flip through the rest
 
 USE IT IN-GAME
 In CS2, press Shift+Tab, open the web browser, go to csstats.rohan.my and click Add to Steam. From then on, every Steam profile you open in the overlay shows the stats.
@@ -62,6 +62,15 @@ A NOTE ON THE VERDICT
 It's an estimate from public stats, not proof. Great players can look suspicious and careful cheaters can look clean, so please don't harass or report anyone based on the verdict alone.
 
 CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT or Allstar.
+```
+
+## What's new in 1.2.2
+
+```
+• Stats for every player Leetify has seen, not just Leetify members: far fewer "No Data" profiles
+• Clips: the 12 best-rated clips, three rows
+• Commendations, CS level, Premier season medals and coins for everyone, no setup needed
+• Install page at csstats.rohan.my for Steam's in-game browser
 ```
 
 ## What's new in 1.2.1

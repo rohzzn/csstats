@@ -45,10 +45,12 @@ fs.mkdirSync(STATE_DIR, { recursive: true });
 
 process.on("unhandledRejection", (reason) => {
   console.error("[Server] Unhandled rejection:", reason?.message ?? reason);
+  process.exit(1);
 });
 
 process.on("uncaughtException", (error) => {
   console.error("[Server] Uncaught exception:", error?.stack || error?.message || error);
+  process.exit(1);
 });
 
 const steamClient = new SteamUser({
@@ -92,6 +94,9 @@ const runtime = {
 let gcReady = false;
 let gcReadyWaiters = [];
 let oneTimeSteamGuardCode = STEAM_GUARD_CODE_ENV.trim();
+let loginPending = false;
+let sessionBlockedUntil = 0;
+let latestRefreshToken = "";
 
 function recordEvent(level, message, extra = null) {
   const entry = {
@@ -111,6 +116,7 @@ function recordEvent(level, message, extra = null) {
 }
 
 steamClient.on("loggedOn", () => {
+  loginPending = false;
   runtime.steamStatus = "connected";
   runtime.lastSteamLogOnAt = Date.now();
   runtime.nextManualRetryMs = MANUAL_RETRY_BASE_MS;
@@ -131,6 +137,7 @@ steamClient.on("steamGuard", (_domain, callback, lastCodeWrong) => {
 });
 
 steamClient.on("refreshToken", (refreshToken) => {
+  latestRefreshToken = refreshToken;
   persistRefreshToken(refreshToken);
   recordEvent("info", "Stored refreshed Steam login token.");
   console.log("[Steam] Stored refreshed Steam login token.");
@@ -138,12 +145,21 @@ steamClient.on("refreshToken", (refreshToken) => {
 
 steamClient.on("playingState", (blocked, appid) => {
   if (blocked) {
-    console.warn(`[Steam] Playing session is blocked by another login (appid ${appid || 0}). Forcing CS2 session.`);
-    scheduleGcRecovery("playing session blocked", 1000, true);
+    sessionBlockedUntil = Date.now() + 5 * 60 * 1000;
+    gcReady = false;
+    clearTimer("gcRecoveryTimer");
+    recordEvent("warn", "Steam account is playing elsewhere; waiting without taking over its session.");
+  } else {
+    sessionBlockedUntil = 0;
+    scheduleGcRecovery("playing session available", 1000, false);
   }
 });
 
 steamClient.on("error", (error) => {
+  loginPending = false;
+  if (error?.eresult === SteamUser.EResult.LoggedInElsewhere || /LoggedInElsewhere/.test(error?.message || "")) {
+    sessionBlockedUntil = Date.now() + 5 * 60 * 1000;
+  }
   gcReady = false;
   runtime.steamStatus = "error";
   runtime.lastSteamErrorAt = Date.now();
@@ -154,6 +170,7 @@ steamClient.on("error", (error) => {
 });
 
 steamClient.on("disconnected", (eresult, message) => {
+  loginPending = false;
   gcReady = false;
   runtime.steamStatus = "reconnecting";
   runtime.lastSteamDisconnectAt = Date.now();
@@ -208,6 +225,7 @@ let queueRunning = false;
 
 function enqueueProfile(steamId) {
   if (inflightMap.has(steamId)) return inflightMap.get(steamId);
+  if (pendingQueue.length >= 25) return Promise.reject(new Error("Steam profile queue is busy. Retry shortly."));
 
   const promise = new Promise((resolve, reject) => {
     pendingQueue.push({ steamId, resolve, reject });
@@ -215,7 +233,7 @@ function enqueueProfile(steamId) {
   });
 
   inflightMap.set(steamId, promise);
-  promise.finally(() => inflightMap.delete(steamId));
+  promise.then(() => inflightMap.delete(steamId), () => inflightMap.delete(steamId));
   return promise;
 }
 
@@ -248,7 +266,7 @@ function gcFetchOne(steamId) {
       fn(value);
     }
 
-    const timer = setTimeout(() => settle(resolve, null), GC_TIMEOUT_MS);
+    const timer = setTimeout(() => settle(reject, new Error("Steam profile request timed out. Retry shortly.")), GC_TIMEOUT_MS);
 
     const result = csgo.requestPlayersProfile(steamId, (profile) => {
       settle(resolve, profile || null);
@@ -346,8 +364,48 @@ function buildStaleCacheResponse(entry, reason) {
   };
 }
 
+function refreshProfileCacheInBackground(steamId) {
+  if (!gcReady) {
+    scheduleGcRecovery("background profile refresh", 0, shouldForceGameSession());
+    return;
+  }
+
+  enqueueProfile(steamId)
+    .then((raw) => {
+      const parsed = parseProfile(raw);
+      const hasData = parsed && (
+        parsed.commend_friendly !== null ||
+        parsed.player_level !== null ||
+        parsed.premier_rating !== null ||
+        parsed.wingman_rank !== null ||
+        parsed.competitive_ranks.length > 0 ||
+        (Array.isArray(parsed.medal_ids) && parsed.medal_ids.length > 0)
+      );
+      if (hasData) setCached(steamId, {ok: true, found: true, ...parsed});
+    })
+    .catch((error) => {
+      runtime.lastProfileError = formatError(error);
+      recordEvent("warn", `Background refresh failed for ${steamId}.`, {error: runtime.lastProfileError});
+    });
+}
+
 const app = express();
-app.use(cors({ origin: [/^chrome-extension:\/\//, /^http:\/\/127\.0\.0\.1/, /^http:\/\/localhost/] }));
+app.use(cors({ origin: [/^chrome-extension:\/\/[a-p]{32}$/, /^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/] }));
+const requestWindows = new Map();
+app.use((req, res, next) => {
+  const ip = req.get("cf-connecting-ip") || req.socket.remoteAddress;
+  const now = Date.now();
+  let window = requestWindows.get(ip);
+  if (!window || window.until <= now) {
+    window = {until: now + 60000, count: 0};
+    requestWindows.delete(ip);
+    requestWindows.set(ip, window);
+  }
+  while (requestWindows.size > 10000) requestWindows.delete(requestWindows.keys().next().value);
+  if (++window.count > 120) return res.status(429).set("Retry-After", "60").json({ok: false, error: "Too many requests. Retry in a minute."});
+  next();
+});
+app.get("/providers/:provider/:steamId", require("./providers"));
 
 app.get("/", (_req, res) => {
   res.json({
@@ -383,14 +441,15 @@ app.get("/profile/:steamId", async (req, res) => {
   if (cached) return res.json(cached);
   const staleEntry = getStaleCachedEntry(steamId);
 
+  if (staleEntry) {
+    refreshProfileCacheInBackground(steamId);
+    return res.json(buildStaleCacheResponse(staleEntry, "background_refresh"));
+  }
+
   if (!gcReady) {
     scheduleGcRecovery("profile request", 0, shouldForceGameSession());
     const ready = await waitForGcReady(GC_REQUEST_WAIT_MS);
     if (!ready) {
-      if (staleEntry) {
-        recordEvent("warn", `Served stale cache for ${steamId} because GC was unavailable.`);
-        return res.json(buildStaleCacheResponse(staleEntry, "gc_not_ready"));
-      }
       return res.status(503).json({ ok: false, error: "GC not connected yet - retry in a few seconds" });
     }
   }
@@ -403,6 +462,8 @@ app.get("/profile/:steamId", async (req, res) => {
       parsed.commend_friendly !== null ||
       parsed.player_level !== null ||
       parsed.premier_rating !== null ||
+      parsed.wingman_rank !== null ||
+      parsed.competitive_ranks.length > 0 ||
       (Array.isArray(parsed.medal_ids) && parsed.medal_ids.length > 0)
     );
 
@@ -453,6 +514,9 @@ function scheduleLogOn(reason, delayMs = 0) {
 
 function performLogOn(reason) {
   if (runtime.shuttingDown) return;
+  // steam-user also reconnects internally. Its connecting flag is necessary
+  // because those attempts do not pass through our own login scheduler.
+  if (loginPending || steamClient._connecting || Date.now() < sessionBlockedUntil) return;
   if (steamClient.steamID && runtime.steamStatus === "connected") return;
 
   const details = buildLogOnDetails();
@@ -460,6 +524,7 @@ function performLogOn(reason) {
   runtime.lastLoginAttemptAt = Date.now();
   runtime.loginMode = details.refreshToken ? "refresh_token" : "password";
   runtime.steamStatus = "connecting";
+  loginPending = true;
 
   recordEvent("info", `Attempting Steam login via ${runtime.loginMode}.`, { reason });
   console.log(`[Steam] Attempting login via ${runtime.loginMode} (${reason})`);
@@ -467,6 +532,7 @@ function performLogOn(reason) {
   try {
     steamClient.logOn(details);
   } catch (error) {
+    loginPending = false;
     runtime.lastSteamErrorAt = Date.now();
     runtime.lastSteamError = formatError(error);
     console.error("[Steam] logOn() failed:", runtime.lastSteamError);
@@ -488,6 +554,7 @@ function buildLogOnDetails() {
 
 function ensurePlayingCs2(reason, force = false) {
   if (runtime.shuttingDown) return;
+  if (Date.now() < sessionBlockedUntil) return;
 
   if (!steamClient.steamID) {
     scheduleLogOn(`${reason} (steam offline)`, getNextManualRetryMs());
@@ -500,7 +567,7 @@ function ensurePlayingCs2(reason, force = false) {
 
   try {
     steamClient.setPersona(SteamUser.EPersonaState.Offline);
-    steamClient.gamesPlayed([APP_ID_CS2], force);
+    steamClient.gamesPlayed([APP_ID_CS2], false);
     recordEvent("info", `Requested CS2 game session${force ? " (force)" : ""}.`, { reason });
     console.log(`[Recovery] Requested CS2 game session${force ? " (force)" : ""}: ${reason}`);
   } catch (error) {
@@ -534,18 +601,21 @@ function scheduleManualSteamRecovery(reason, delayMs = null) {
 
     if (runtime.shuttingDown) return;
     if (gcReady && runtime.steamStatus === "connected") return;
+    if (loginPending || steamClient._connecting || Date.now() < sessionBlockedUntil) return;
 
     try {
       if (steamClient.steamID && typeof steamClient.relog === "function") {
         runtime.manualRelogAttempts += 1;
         runtime.lastManualRelogAt = Date.now();
         runtime.steamStatus = "reconnecting";
+        loginPending = true;
         recordEvent("warn", "Relogging Steam session.", { reason });
         console.warn(`[Recovery] Relogging Steam session (${reason})`);
         steamClient.relog();
         return;
       }
     } catch (error) {
+      loginPending = false;
       runtime.lastSteamErrorAt = Date.now();
       runtime.lastSteamError = formatError(error);
       console.error("[Recovery] steamClient.relog() failed:", runtime.lastSteamError);
@@ -558,6 +628,7 @@ function scheduleManualSteamRecovery(reason, delayMs = null) {
 function startWatchdog() {
   setInterval(() => {
     if (runtime.shuttingDown) return;
+    if (Date.now() < sessionBlockedUntil) return;
 
     const now = Date.now();
     if (!gcReady) {
@@ -641,9 +712,7 @@ function promptSteamGuardCode(prompt) {
 }
 
 function shouldForceGameSession() {
-  const blocked = Boolean(steamClient.playingState?.blocked);
-  const staleFor = msSince(runtime.lastGcDisconnectAt || runtime.lastSteamLogOnAt || runtime.startedAt);
-  return blocked || staleFor >= GC_CONNECT_GRACE_MS;
+  return false;
 }
 
 function waitForGcReady(timeoutMs) {
@@ -720,16 +789,17 @@ function buildStatus(verbose) {
 }
 
 function loadRefreshToken() {
-  if (REFRESH_TOKEN_ENV) {
-    return REFRESH_TOKEN_ENV.trim();
-  }
-
+  if (latestRefreshToken) return latestRefreshToken;
   try {
     const saved = JSON.parse(fs.readFileSync(REFRESH_TOKEN_FILE, "utf8"));
-    return String(saved?.refreshToken || "").trim() || "";
+    const token = String(saved?.refreshToken || "").trim();
+    // Prefer a renewed token after restart, but allow an explicit account change.
+    const subject = (value) => JSON.parse(Buffer.from(value.split(".")[1], "base64url").toString()).sub;
+    if (token && (!REFRESH_TOKEN_ENV || subject(token) === subject(REFRESH_TOKEN_ENV))) return token;
   } catch {
-    return "";
+    // Missing or malformed saved state falls back to configured credentials.
   }
+  return REFRESH_TOKEN_ENV.trim();
 }
 
 function persistRefreshToken(refreshToken) {

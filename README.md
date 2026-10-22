@@ -14,13 +14,14 @@ Every Steam profile gets a **Stats** showcase, a **Matches** showcase (when Leet
 | **Performance** | A ratings column (Premier rating · FACEIT level + peak or current ELO) beside a column-aligned grid: Aim · K/D · Win Rate · Last 5 over Time to Damage · Utility · Total Matches · Account Age | Leetify · FACEIT · Steam Web API |
 | **Per-map ranks** | Wingman rank + competitive rank for each map | Leetify (Wingman from the GC server when available) |
 
+- **Every player Leetify has seen gets stats.** Leetify's public API only covers Leetify's own users; for anyone else it answers 404, so the extension falls back to the data Leetify's website shows (fetched through the stats server's `/providers/leetify/<steam64>`). That data has no match dates and no banned-player flags, so those are left out.
 - Metrics without data are left out. Without a Leetify profile, the FACEIT level, ELO, K/D and HS% take the Leetify stats' place. On narrow screens the ratings sit above a two-column grid.
 - **Premier** is colour-coded to match the in-game tier (grey → light blue → blue → purple → pink → red → gold). Click the badge to switch between current and peak rating; hover it to see the other value.
 - **FACEIT ELO** shows the peak by default, and the level badge matches the ELO on display. Click it to switch to the current ELO; hover it to see which one is showing. The peak comes from FACEIT's match history (up to the last 1,000 games); if that history can't be loaded, only the current ELO is shown.
 - **Total Matches** counts everything: Premier, Competitive, Wingman and FACEIT. If Leetify doesn't import the player's FACEIT games, FACEIT lifetime matches are added to Leetify's total; if it does, the larger of the two counts is shown so nothing is counted twice. Hover for the breakdown.
 - **Account Age** comes from the Steam account creation date (hidden when the profile is private).
 - **Matches** always shows the past **10** matches: map, mode, score and K-D. The coloured edge and score show the result (green win, red loss, grey draw).
-- **Clips** shows the player's 8 best-rated Allstar clips (Allstar's own "Best" ranking). Click one to watch it in a large player: full screen with the button or **F**, switch clips with the arrows or **← →**, close with **Esc**.
+- **Clips** shows the player's 12 best-rated Allstar clips (Allstar's own "Best" ranking) in three rows of four (three rows of two on narrow screens). Click one to watch it in a large player: full screen with the button or **F**, switch clips with the arrows or **← →**, close with **Esc**.
 - **Header medals** (CS2 coins, pins, service medals and trophies) sit next to the persona name and page with arrows when they don't all fit. Premier season medals are shown in the Steam row instead, not here.
 
 ### Cheating verdict

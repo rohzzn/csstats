@@ -8,7 +8,7 @@
   const ROOT_SELECTOR = `#${ROOT_ID}, #${MATCHES_ID}, #${CLIPS_ID}, #${HEADER_MEDALS_ID}`;
   const DEFAULT_ERROR = "The extension could not load provider data.";
   const MATCH_LIMIT = 10;
-  const CLIP_LIMIT = 8;
+  const CLIP_LIMIT = 12; // three rows of four (two per row, three rows, on narrow screens)
   const MEDAL_GAP = 8;
   const MEDAL_MIN_SLOT = 14;
   const MEDAL_NAV_WIDTH = 58;
