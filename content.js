@@ -2,10 +2,11 @@
   const ROOT_ID = "spx-cs2-profile-intel";
   const MATCHES_ID = "spx-cs2-matches-intel";
   const CLIPS_ID = "spx-cs2-clips-intel";
+  const CSREP_ID = "spx-cs2-csrep-intel";
   const HEADER_MEDALS_ID = "spx-cs2-header-medals";
   const TOOLTIP_ID = "spx-tooltip";
   const PLAYER_ID = "spx-clip-player";
-  const ROOT_SELECTOR = `#${ROOT_ID}, #${MATCHES_ID}, #${CLIPS_ID}, #${HEADER_MEDALS_ID}`;
+  const ROOT_SELECTOR = `#${ROOT_ID}, #${MATCHES_ID}, #${CLIPS_ID}, #${CSREP_ID}, #${HEADER_MEDALS_ID}`;
   const DEFAULT_ERROR = "The extension could not load provider data.";
   const MATCH_LIMIT = 10;
   const CLIP_LIMIT = 12; // three rows of four (two per row, three rows, on narrow screens)
@@ -48,6 +49,7 @@
     root: null,
     matchesRoot: null,
     clipsRoot: null,
+    csrepRoot: null,
     settings: { ...SPX_DEFAULT_USER_SETTINGS },
     loadToken: 0,
     html: new Map(),
@@ -181,9 +183,13 @@
     state.clipsRoot = ensureRoot(CLIPS_ID);
     state.matchesRoot.insertAdjacentElement("afterend", state.clipsRoot);
 
+    state.csrepRoot = ensureRoot(CSREP_ID);
+    state.clipsRoot.insertAdjacentElement("afterend", state.csrepRoot);
+
     bindRoot(state.root, handleStatsClick);
     bindRoot(state.matchesRoot, null);
     bindRoot(state.clipsRoot, handleClipsClick);
+    bindRoot(state.csrepRoot, null);
 
     renderLoading();
   }
@@ -247,6 +253,8 @@
     document.fonts?.ready?.then(fitPremierPins);
     setSection(state.matchesRoot, renderMatchesSection(view));
     setSection(state.clipsRoot, renderClipsSection(view));
+    setSection(state.csrepRoot, renderCsrepSection(view));
+    applyPremierBadgeArt(state.csrepRoot);
     renderHeaderMedals(view.medals);
     restoreFocus(focusKey);
   }
@@ -255,6 +263,7 @@
     clearHeaderMedals();
     setSection(state.matchesRoot, "");
     setSection(state.clipsRoot, "");
+    setSection(state.csrepRoot, "");
     setHtml(state.root, renderShell("Stats", `
       <div class="spx-skeleton" role="status" aria-label="Loading stats">
         ${[1, 2, 3].map((index) => `<div class="spx-skeleton-row"><span class="spx-skeleton-bar spx-skeleton-bar-${index}"></span></div>`).join("")}
@@ -266,6 +275,7 @@
     clearHeaderMedals();
     setSection(state.matchesRoot, "");
     setSection(state.clipsRoot, "");
+    setSection(state.csrepRoot, "");
     setHtml(state.root, renderShell("Stats", `<div class="spx-inline-note">${escapeHtml(message)}</div>`));
   }
 
@@ -313,6 +323,7 @@
       leetify: ready("leetify"),
       insights: ready("insights"),
       allstar: ready("allstar"),
+      csrep: ready("csrep"),
       settings: resolveUserSettings(bundle),
       premierPins: collectPremierPins(medals),
       medals: medals.filter((medal) => !getPremierSeason(medal))
@@ -365,17 +376,19 @@
     `);
   }
 
-  function renderSteamRow({ steam, gc, leetify, insights, premierPins }) {
+  function renderSteamRow({ steam, gc, leetify, insights, csrep, premierPins }) {
     const commendations = firstList(gc?.commendations, steam?.commendations);
     const verdict = insights?.verdict?.label ? insights.verdict : null;
     const bannedLobbies = renderBannedLobbiesMetric(leetify?.stats);
+    // csrep's trust score takes the verdict's place; a ban still shows as the red ban tag.
+    const trust = Number.isFinite(csrep?.trust?.score) && verdict?.level !== "banned" ? csrep : null;
 
     const primary = [
       commendations.length ? renderCommendationStrip(commendations) : "",
       premierPins.length ? renderPremierPins(premierPins) : ""
     ].filter(Boolean);
     const secondary = [
-      verdict ? renderVerdictMetric(verdict) : "",
+      trust ? renderTrustMetric(trust) : verdict ? renderVerdictMetric(verdict) : "",
       bannedLobbies
     ].filter(Boolean);
 
@@ -582,6 +595,87 @@
         <div class="spx-metric-value"><span class="spx-verdict-tag">${escapeHtml(label)}</span></div>
       </div>
     `;
+  }
+
+  // ── csrep.gg trust score ──────────────────────────
+
+  function renderTrustMetric(csrep) {
+    const score = csrep.trust.score;
+    const shown = formatTrustScore(score);
+    const lines = describeTrust(csrep);
+    const note = "csrep.gg · estimate from public data, not proof";
+
+    return `
+      <div class="spx-metric spx-metric-trust spx-trust-${getTrustBand(score)}" tabindex="0" role="group"
+        data-spx-tip="${escapeAttribute(lines.join("\n"))}"
+        data-spx-tip-title="${escapeAttribute(`Trust score ${shown} / 100`)}"
+        data-spx-tip-note="${escapeAttribute(note)}"
+        aria-label="${escapeAttribute([`Trust score ${shown} out of 100`, ...lines, note].join(". "))}">
+        <div class="spx-metric-label">Trust score</div>
+        <div class="spx-metric-value">${renderTrustRing(score, 18, 2.5)}<span class="spx-trust-number">${shown}</span></div>
+      </div>
+    `;
+  }
+
+  function describeTrust(csrep) {
+    const anomaly = csrep.anomaly || {};
+    const flagged = listOf(anomaly.signals).filter((signal) => !isCleanSeverity(signal.severity));
+    return [
+      anomaly.severity ? `Anomaly scan: ${titleCase(anomaly.severity)}` : "",
+      ...flagged.map((signal) => `${signal.label}: ${titleCase(signal.severity)}`),
+      Number.isFinite(csrep.trust.statistical) ? `Statistical trust ${Math.round(csrep.trust.statistical * 100)}%` : "",
+      csrep.autoflag ? `Auto-flagged: ${csrep.autoflag}` : "",
+      Number.isFinite(csrep.performance?.matches) ? `Based on ${formatCount(csrep.performance.matches)} matches` : ""
+    ].filter(Boolean);
+  }
+
+  // Speedometer-style gauge: a 270° arc open at the bottom, filled to the score in the band's colour
+  // (see .spx-trust-* in styles.css). Open, so even 100 reads as a gauge rather than an "O".
+  function renderTrustRing(score, size, stroke) {
+    const radius = (size - stroke) / 2;
+    const center = size / 2;
+    const offset = radius * Math.SQRT1_2;
+    // From bottom-left (135°) clockwise to bottom-right (45°); pathLength 100 makes the dash the score.
+    const path = `M ${(center - offset).toFixed(2)} ${(center + offset).toFixed(2)} A ${radius} ${radius} 0 1 1 ${(center + offset).toFixed(2)} ${(center + offset).toFixed(2)}`;
+    const filled = Math.max(0, Math.min(100, score));
+    const arc = (className, dash) => `<path class="${className}" d="${path}" pathLength="100" fill="none" stroke-width="${stroke}" stroke-linecap="round"${dash}/>`;
+    return `
+      <svg class="spx-trust-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true" focusable="false">
+        ${arc("spx-trust-track", "")}${filled > 0 ? arc("spx-trust-fill", ` stroke-dasharray="${filled.toFixed(2)} 100"`) : ""}
+      </svg>
+    `;
+  }
+
+  function getTrustBand(score) {
+    if (score >= 80) return "high";
+    if (score >= 50) return "medium";
+    if (score >= 25) return "low";
+    return "critical";
+  }
+
+  // One decimal, rounded down so a 99.95 never reads as a perfect 100.
+  function formatTrustScore(score) {
+    const value = Math.floor(score * 10) / 10;
+    return Number.isInteger(value) ? String(value) : value.toFixed(1);
+  }
+
+  function isCleanSeverity(severity) {
+    return !severity || severity === "CLEAN" || severity === "NONE";
+  }
+
+  function severityTone(severity) {
+    if (isCleanSeverity(severity)) return "clean";
+    if (/LOW|MINOR/.test(severity)) return "watch";
+    if (/CRITICAL|SEVERE|HIGH/.test(severity)) return "bad";
+    return "warn";
+  }
+
+  function titleCase(value) {
+    return String(value || "").toLowerCase().replace(/_/g, " ").replace(/^\w/, (char) => char.toUpperCase());
+  }
+
+  function formatCount(value) {
+    return Number.isFinite(value) ? Math.round(value).toLocaleString("en-US") : "";
   }
 
   // "Played with banned": recent matches that had a player who was banned afterwards.
@@ -884,6 +978,157 @@
 
     event.preventDefault();
     openClipPlayer(Number(button.dataset.spxClipIndex), button);
+  }
+
+  // ── CSRep (temporary preview of everything csrep.gg has) ──
+
+  function renderCsrepSection({ csrep }) {
+    if (!csrep) {
+      return "";
+    }
+
+    const rows = [
+      renderCsrepReputation(csrep),
+      renderCsrepPerformance(csrep.performance),
+      renderCsrepRanks(csrep.ranks),
+      renderCsrepAccount(csrep.account)
+    ].filter(Boolean);
+
+    return renderShell("CSRep", `
+      <div class="spx-row-list">
+        ${rows.map((row) => `<article class="spx-provider-row spx-csrep-row">${row}</article>`).join("")}
+      </div>
+    `);
+  }
+
+  function renderCsrepHeading(title, detail = "") {
+    return `<div class="spx-csrep-heading">${escapeHtml(title)}${detail ? `<span class="spx-csrep-heading-detail">${escapeHtml(detail)}</span>` : ""}</div>`;
+  }
+
+  function renderCsrepReputation(csrep) {
+    const score = csrep.trust?.score;
+    const anomaly = csrep.anomaly || {};
+    const gauge = Number.isFinite(score) ? `
+      <div class="spx-csrep-gauge spx-trust-${getTrustBand(score)}" data-spx-tip="${escapeAttribute(describeTrust(csrep).join("\n"))}" data-spx-tip-title="${escapeAttribute(`Trust score ${formatTrustScore(score)} / 100`)}">
+        ${renderTrustRing(score, 58, 5)}
+        <div class="spx-csrep-gauge-text"><span class="spx-csrep-gauge-number">${formatTrustScore(score)}</span><span class="spx-csrep-gauge-label">Trust</span></div>
+      </div>
+    ` : "";
+
+    const facts = [
+      anomaly.severity ? `
+        <div class="spx-metric">
+          <div class="spx-metric-label">Anomaly scan</div>
+          <div class="spx-metric-value"><span class="spx-csrep-tag spx-tone-${severityTone(anomaly.severity)}">${escapeHtml(titleCase(anomaly.severity))}</span></div>
+        </div>` : "",
+      Number.isFinite(csrep.trust?.statistical) ? renderMetric({ label: "Statistical trust", value: `${Math.round(csrep.trust.statistical * 100)}%` }) : "",
+      Number.isFinite(anomaly.score) ? renderMetric({ label: "Anomaly score", value: String(Math.round(anomaly.score)) }) : "",
+      renderMetric({ label: "Auto-flag", value: csrep.autoflag || "None" })
+    ].filter(Boolean);
+
+    const signals = listOf(anomaly.signals).map((signal) => `
+      <li class="spx-csrep-signal spx-tone-${severityTone(signal.severity)}">
+        <span class="spx-csrep-dot" aria-hidden="true"></span><span class="spx-csrep-signal-label">${escapeHtml(signal.label)}</span>
+        <span class="spx-csrep-signal-state">${escapeHtml(titleCase(signal.severity))}</span>
+      </li>
+    `).join("");
+
+    return `
+      ${renderCsrepHeading("Reputation")}
+      <div class="spx-csrep-rep">
+        ${gauge}
+        <div class="spx-csrep-rep-body">
+          <div class="spx-metric-grid">${facts.join("")}</div>
+          ${signals ? `<ul class="spx-csrep-signals" aria-label="Anomaly signals">${signals}</ul>` : ""}
+        </div>
+      </div>
+    `;
+  }
+
+  function renderCsrepPerformance(performance) {
+    const metrics = listOf(performance?.metrics);
+    if (!metrics.length) return "";
+
+    const detail = [
+      Number.isFinite(performance.matches) ? `last ${formatCount(performance.matches)} matches` : "",
+      performance.lowSample ? "small sample" : ""
+    ].filter(Boolean).join(" · ");
+
+    return `
+      ${renderCsrepHeading("Performance", detail)}
+      <div class="spx-csrep-stats">
+        ${metrics.map((metric) => {
+          const tip = [metric.threshold, metric.scored ? "" : "Not enough matches to score yet"].filter(Boolean).join("\n");
+          return `
+            <div class="spx-metric spx-csrep-stat spx-flag-${escapeAttribute(metric.flag)}${metric.scored ? "" : " spx-csrep-unscored"}"${tip ? ` data-spx-tip="${escapeAttribute(tip)}"` : ""}>
+              <div class="spx-metric-label">${escapeHtml(metric.label)}</div>
+              <div class="spx-metric-value">${escapeHtml(metric.value)}</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  }
+
+  function renderCsrepRanks(ranks) {
+    const seasons = listOf(ranks?.premierSeasons).map((season) => {
+      const value = season.current || season.peak;
+      const tier = getPremierTier(value);
+      const peak = season.peak && season.peak !== season.current ? `Peak ${formatCount(season.peak)}` : "Peak";
+      return `
+        <div class="spx-csrep-season spx-metric-premier spx-premier-${tier}" data-spx-tip="${escapeAttribute(`Premier Season ${season.season}: ${formatCount(season.current) || "unranked"}${season.peak ? ` · peak ${formatCount(season.peak)}` : ""}`)}">
+          <div class="spx-metric-label">Season ${season.season}</div>
+          <span class="spx-premier-badge" data-spx-premier-tier="${tier}"><span class="spx-metric-value">${escapeHtml(formatCount(value))}</span></span>
+          <div class="spx-csrep-sub">${escapeHtml(season.peak && season.peak !== season.current ? peak : "")}</div>
+        </div>
+      `;
+    });
+
+    const faceit = Number.isFinite(ranks?.faceit?.current) ? renderMetric({
+      label: "FACEIT ELO",
+      value: formatCount(ranks.faceit.current),
+      tooltip: Number.isFinite(ranks.faceit.peak) ? `Peak ${formatCount(ranks.faceit.peak)}` : ""
+    }) : "";
+    const wingman = ranks?.wingman?.image ? `
+      <div class="spx-competitive-rank" data-spx-tip="${escapeAttribute(`Wingman: ${ranks.wingman.rankLabel}`)}">
+        <img class="spx-competitive-image" src="${escapeAttribute(ranks.wingman.image)}" width="74" height="30" alt="${escapeAttribute(ranks.wingman.rankLabel)}" decoding="async" />
+        <div class="spx-competitive-map">Wingman</div>
+      </div>` : "";
+
+    const competitive = listOf(ranks?.competitive).map((entry) => `
+      <div class="spx-competitive-rank" data-spx-tip="${escapeAttribute(`${entry.mapName}: ${entry.rankLabel}${entry.peakLabel ? ` · peak ${entry.peakLabel}` : ""}`)}">
+        <img class="spx-competitive-image" src="${escapeAttribute(entry.image)}" width="74" height="30" alt="${escapeAttribute(entry.rankLabel)}" decoding="async" />
+        <div class="spx-competitive-map">${escapeHtml(entry.mapName)}</div>
+      </div>
+    `).join("");
+
+    if (!seasons.length && !faceit && !wingman && !competitive) return "";
+
+    return `
+      ${renderCsrepHeading("Ranks")}
+      ${seasons.length || faceit ? `<div class="spx-metric-grid spx-csrep-ratings">${seasons.join("")}${faceit}</div>` : ""}
+      ${wingman || competitive ? `<div class="spx-competitive-strip spx-csrep-maps">${wingman}${competitive}</div>` : ""}
+    `;
+  }
+
+  function renderCsrepAccount(account) {
+    if (!account) return "";
+    const created = account.createdAt ? new Date(account.createdAt) : null;
+    const facts = [
+      renderMetric({ label: "CS2 hours", value: account.hours ? formatCount(account.hours) : "Hidden" }),
+      Number.isFinite(account.inventoryValue) ? renderMetric({ label: "Inventory", value: `$${formatCount(account.inventoryValue)}` }) : "",
+      Number.isFinite(account.steamLevel) ? renderMetric({ label: "Steam level", value: String(account.steamLevel) }) : "",
+      created && !Number.isNaN(created.getTime())
+        ? renderMetric({ label: "Created", value: created.toLocaleDateString("en-US", { month: "short", year: "numeric", timeZone: "UTC" }) })
+        : "",
+      listOf(account.links).length ? `
+        <div class="spx-metric">
+          <div class="spx-metric-label">Linked</div>
+          <div class="spx-metric-value spx-csrep-links">${listOf(account.links).map((link) => `<a href="${escapeAttribute(link.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(link.label)}</a>`).join("")}</div>
+        </div>` : ""
+    ].filter(Boolean);
+
+    return `${renderCsrepHeading("Account")}<div class="spx-metric-grid">${facts.join("")}</div>`;
   }
 
   // ── Clip player (lightbox) ────────────────────────
