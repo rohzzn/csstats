@@ -3,285 +3,263 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Add CS Stats to Steam</title>
-<meta name="description" content="See any CS2 player's Premier and FACEIT ratings, a cheating verdict, recent matches and best clips right on their Steam profile, even from the in-game overlay.">
-<meta name="theme-color" content="#171a21">
+<title>CS Stats: every player, every stat</title>
+<meta name="description" content="See any CS2 player's Premier and FACEIT ratings, a cheat verdict, their last 10 matches and best clips right on their Steam profile, even from the in-game overlay. Free.">
+<meta name="theme-color" content="#E10A17">
 <link rel="icon" type="image/png" href="/icon.png">
+<link rel="preload" href="/fonts/big-shoulders-display.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://csstats.rohan.my/">
-<meta property="og:title" content="CS Stats: is this CS2 player any good, or cheating?">
-<meta property="og:description" content="Premier and FACEIT ratings, a cheating verdict, recent matches and best clips on every Steam profile. Free.">
+<meta property="og:title" content="CS Stats: every player, every stat">
+<meta property="og:description" content="Premier and FACEIT ratings, a cheat verdict, recent matches and best clips on every Steam profile. Free.">
 <meta property="og:image" content="https://csstats.rohan.my/og.jpg">
-<meta property="og:image:width" content="1280">
-<meta property="og:image:height" content="800">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <style>
+  @font-face{font-family:'Big Shoulders Display';font-style:normal;font-weight:800 900;font-display:swap;src:url(/fonts/big-shoulders-display.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+  @font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:500 700;font-display:swap;src:url(/fonts/jetbrains-mono.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+  @font-face{font-family:'Manrope';font-style:normal;font-weight:500 800;font-display:swap;src:url(/fonts/manrope.woff2) format('woff2');unicode-range:U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD}
+
   :root {
-    --bg: #1b2838;
-    --bg-deep: #171a21;
-    --card: #16202d;
-    --line: rgba(102, 192, 244, 0.16);
-    --text: #c7d5e0;
-    --muted: #8f98a0;
-    --white: #ffffff;
-    --blue: #66c0f4;
-    --ok: #a4d007;
-    color-scheme: dark;
+    --red: #E10A17;
+    --deep: #A3000E;
+    --white: #FFFFFF;
+    --pad: clamp(20px, 4.5vw, 64px);
+    --display: 'Big Shoulders Display', 'Arial Narrow', Impact, sans-serif;
+    --mono: 'JetBrains Mono', Consolas, 'SFMono-Regular', monospace;
+    --body: 'Manrope', 'Segoe UI', system-ui, sans-serif;
+    color-scheme: light;
   }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    background:
-      radial-gradient(1100px 520px at 12% -10%, rgba(102, 192, 244, 0.16), transparent 60%),
-      radial-gradient(900px 480px at 100% 110%, rgba(164, 208, 7, 0.07), transparent 60%),
-      linear-gradient(180deg, var(--bg-deep) 0%, var(--bg) 340px, var(--bg) 100%);
-    color: var(--text);
-    font: 16px/1.55 "Motiva Sans", "Segoe UI", Arial, Helvetica, sans-serif;
-  }
-  a { color: var(--blue); }
-  .top {
-    padding: 18px 24px;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.35);
-    background: rgba(23, 26, 33, 0.7);
-  }
-  .brand {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
+    overflow-x: hidden;
+    background: var(--red);
     color: var(--white);
-    font-weight: 700;
-    font-size: 18px;
-    letter-spacing: 0.02em;
-    text-decoration: none;
+    font: 600 17px/1.5 var(--body);
+    -webkit-font-smoothing: antialiased;
   }
-  .brand img { border-radius: 6px; }
-  main {
-    flex: 1;
-    width: 100%;
-    max-width: 1120px;
-    margin: 0 auto;
-    padding: 48px 24px 40px;
-    display: grid;
-    gap: 40px;
-    align-items: center;
-  }
-  @media (min-width: 960px) {
-    main { grid-template-columns: minmax(0, 1fr) minmax(0, 560px); gap: 56px; padding-top: 72px; }
-  }
-  @media (max-width: 959px) {
-    main { max-width: 680px; }
-  }
-  h1 {
-    margin: 0 0 14px;
-    color: var(--white);
-    font-size: clamp(30px, 5vw, 46px);
-    line-height: 1.1;
-    letter-spacing: -0.01em;
-    text-wrap: balance;
-  }
-  .lede { margin: 0 0 28px; max-width: 34em; font-size: 17px; }
-  .card {
-    background: linear-gradient(180deg, rgba(42, 71, 94, 0.55), rgba(22, 32, 45, 0.9));
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    padding: 24px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
-  }
+  a { color: inherit; }
+  img { display: block; max-width: 100%; height: auto; }
+  :focus-visible { outline: 3px solid var(--white); outline-offset: 4px; }
+  .wrap { max-width: 1280px; margin: 0 auto; }
+  .label { font: 700 13px/1.4 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
+  .display { margin: 0; font-family: var(--display); font-weight: 900; text-transform: uppercase; }
+
+  /* ── Hero ── */
+  .hero { padding: 52px var(--pad) 110px; }
+  .hero .wrap { display: flex; flex-direction: column; gap: 34px; }
+  .topline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-bottom: 14px; border-bottom: 2px solid var(--white); }
+  h1.display { font-size: clamp(58px, 14.6vw, 240px); line-height: 0.8; letter-spacing: -0.01em; }
+  .intro { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 22px 48px; }
+  .lede { flex: 1 1 440px; margin: 0; max-width: 32em; font-size: 20px; line-height: 1.5; }
+  .cta { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; }
   .btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    width: 100%;
-    min-height: 56px;
-    padding: 12px 20px;
-    border-radius: 3px;
-    font-size: 19px;
-    font-weight: 700;
-    text-decoration: none;
-    text-align: center;
-    transition: filter 0.15s ease, background 0.15s ease;
+    display: inline-flex; align-items: center; justify-content: center; gap: 12px;
+    min-height: 62px; padding: 0 32px; border-radius: 999px;
+    background: var(--white); color: var(--red);
+    font: 900 26px/1 var(--display); letter-spacing: 0.02em; text-transform: uppercase; text-decoration: none;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
   }
-  .btn-green {
-    color: #d2efa9;
-    background: linear-gradient(to right, #75b022 5%, #588a1b 95%);
-    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35);
-  }
-  .btn-green:hover { color: var(--white); background: linear-gradient(to right, #8ed629 5%, #6aa621 95%); }
-  .btn-blue {
-    color: var(--white);
-    background: linear-gradient(to right, #47bfff 5%, #1a44c2 95%);
-  }
-  .btn-blue:hover { filter: brightness(1.12); }
-  .btn:focus-visible, a:focus-visible { outline: 2px solid var(--white); outline-offset: 3px; }
-  .btn svg { flex: none; }
-  .steps {
-    list-style: none;
-    counter-reset: step;
-    margin: 22px 0 0;
-    padding: 0;
-    display: grid;
-    gap: 12px;
-  }
-  .steps li {
-    counter-increment: step;
-    position: relative;
-    padding-left: 40px;
-    min-height: 28px;
-  }
-  .steps li::before {
-    content: counter(step);
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 28px;
-    height: 28px;
-    border-radius: 50%;
-    display: grid;
-    place-items: center;
-    background: rgba(102, 192, 244, 0.15);
-    color: var(--blue);
-    font-weight: 700;
-    font-size: 14px;
-  }
-  b { color: var(--white); font-weight: 600; }
-  .hint { margin: 14px 0 0; color: var(--muted); font-size: 14px; text-align: center; }
-  .ok {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 0 0 18px;
-    color: var(--white);
-    font-size: 19px;
-    font-weight: 700;
-  }
-  .ok svg { flex: none; color: var(--ok); }
-  .card-title { margin: 0 0 6px; color: var(--white); font-size: 20px; line-height: 1.3; }
-  .card-note { margin: 0; color: var(--text); }
-  .on-web-block .steps { margin-top: 16px; }
-  .addr {
-    color: var(--blue);
-    font: 700 18px/1.3 Consolas, "SFMono-Regular", Menlo, monospace;
-    letter-spacing: 0.01em;
-    overflow-wrap: anywhere;
-  }
-  .divider { height: 1px; margin: 22px 0 16px; background: var(--line); }
-  .btn.btn-secondary {
-    min-height: 46px;
-    margin-top: 12px;
-    font-size: 16px;
-    color: #dfe3e6;
-    background: rgba(103, 193, 245, 0.12);
-  }
-  .btn.btn-secondary:hover { color: var(--white); background: rgba(103, 193, 245, 0.24); }
-  kbd {
-    display: inline-block;
-    padding: 1px 7px;
-    border: 1px solid rgba(199, 213, 224, 0.3);
-    border-bottom-width: 2px;
-    border-radius: 4px;
-    background: rgba(0, 0, 0, 0.25);
-    color: var(--white);
-    font: 600 13px/1.5 "Motiva Sans", "Segoe UI", Arial, sans-serif;
-  }
-  .shot { margin: 0; }
-  .shot img {
-    display: block;
-    width: 100%;
-    height: auto;
-    border-radius: 8px;
-    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
-  }
-  footer {
-    padding: 22px 24px 28px;
-    color: var(--muted);
-    font-size: 13px;
-    text-align: center;
-  }
-  footer a { color: var(--text); }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 0 -4px var(--deep); }
+  .hint { font: 500 13px/1.5 var(--mono); }
+  .ok { display: flex; align-items: center; gap: 10px; margin: 0; font: 900 30px/1 var(--display); text-transform: uppercase; }
 
-  /* Which variant shows: inside Steam's browser vs a normal browser, installed or not. */
-  html[data-env="steam"] .on-web-block { display: none; }
-  html:not([data-env="steam"]) .on-steam-block { display: none; }
-  .state-installed { display: none; }
-  html[data-installed="yes"] .state-installed { display: block; }
-  html[data-installed="yes"] .state-add { display: none; }
+  /* Which call to action shows: a normal browser, Steam's browser, or CS Stats already installed. */
+  .when-steam, .when-installed { display: none; }
+  html[data-env="steam"] .when-steam { display: flex; }
+  html[data-env="steam"] .when-web { display: none; }
+  html[data-installed="yes"] .when-web, html[data-installed="yes"] .when-steam { display: none; }
+  html[data-installed="yes"] .when-installed { display: flex; }
 
-  @media (max-width: 480px) {
-    main { padding: 28px 16px 28px; gap: 28px; }
-    .top { padding: 14px 16px; }
-    .card { padding: 18px; }
-    .btn { font-size: 18px; }
+  .shot { margin: 0; display: flex; flex-direction: column; }
+  .tab { align-self: flex-start; padding: 10px 18px 8px; background: var(--white); color: var(--red); }
+  .frame { padding: 10px; background: var(--white); }
+  .hero .shot { margin-top: 36px; }
+
+  /* ── Peak Premier ── */
+  .peak { padding: 0 var(--pad) 110px; }
+  .peak .wrap { display: flex; flex-direction: column; gap: 18px; }
+  .huge {
+    font: 900 clamp(108px, 25vw, 400px)/0.78 var(--display);
+    letter-spacing: -0.02em; color: transparent; -webkit-text-stroke: 3px var(--white);
   }
-  @media (prefers-reduced-motion: reduce) { .btn { transition: none; } }
+  .facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 18px 0 0; border-top: 2px solid var(--white); }
+  .facts div { display: flex; flex-direction: column-reverse; gap: 4px; padding: 18px 18px 0 0; }
+  .facts div + div { padding-left: 18px; }
+  .facts dd { margin: 0; font: 900 56px/1 var(--display); }
+  .facts dt { font: 700 12px/1.4 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
+
+  /* ── Matches + clips ── */
+  .band { background: var(--deep); padding: 110px var(--pad); }
+  .band .wrap { display: flex; flex-direction: column; gap: 110px; }
+  .feature { display: flex; flex-direction: column; gap: 28px; }
+  .feature-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px 40px; }
+  h2.display { font-size: clamp(52px, 8vw, 128px); line-height: 0.82; }
+  .score { display: flex; align-items: flex-end; gap: 14px; }
+  .score b { font: 900 clamp(84px, 11vw, 168px)/0.78 var(--display); }
+  .score span { padding-bottom: 8px; font: 700 12px/1.5 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
+  .band .tab { color: var(--deep); }
+  .keys { display: flex; flex-wrap: wrap; gap: 10px; }
+  .keys span { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 16px; border: 2px solid var(--white); font: 700 14px/1 var(--mono); }
+  .keys em { font: 600 14px/1 var(--body); font-style: normal; }
+
+  /* ── Install ── */
+  .install { padding: 110px var(--pad); }
+  .install .wrap { display: flex; flex-direction: column; gap: 48px; }
+  .steps { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px; }
+  .steps li { display: flex; flex-direction: column; gap: 16px; }
+  .steps .num { display: flex; align-items: center; justify-content: center; width: clamp(80px, 9vw, 104px); aspect-ratio: 1; border-radius: 50%; background: var(--white); color: var(--red); font: 900 clamp(48px, 5.4vw, 64px)/1 var(--display); }
+  .steps strong { font: 800 34px/1.05 var(--display); text-transform: uppercase; overflow-wrap: anywhere; }
+
+  /* ── Footer ── */
+  footer { background: var(--white); color: var(--red); }
+  footer .wrap { padding: 72px var(--pad) 40px; display: flex; flex-direction: column; gap: 40px; }
+  footer :focus-visible { outline-color: var(--red); }
+  .big-link { display: none; width: fit-content; font: 900 clamp(56px, 10.4vw, 176px)/0.86 var(--display); text-transform: uppercase; text-decoration: none; color: var(--red); }
+  .big-link.when-web { display: block; }
+  html[data-env="steam"] .big-link.when-steam { display: block; }
+  html[data-installed="yes"] .big-link.when-installed { display: block; }
+  html[data-installed="yes"] .big-link.when-web, html[data-installed="yes"] .big-link.when-steam, html[data-env="steam"] .big-link.when-web { display: none; }
+  .big-link svg { display: inline-block; width: 0.6em; height: 0.6em; margin-left: 0.14em; vertical-align: 0.02em; transition: transform 0.15s ease; }
+  .big-link:hover svg { transform: translateX(0.08em); }
+  .keep { white-space: nowrap; }
+  .legal { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; padding-top: 16px; border-top: 2px solid var(--red); font: 700 12px/1.5 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+
+  /* ── Tablet ── */
+  @media (max-width: 900px) {
+    .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .facts div:nth-child(3) { padding-left: 0; }
+    .steps { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+    .steps li { display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto; column-gap: 22px; row-gap: 6px; align-items: center; }
+    .steps .num { grid-row: span 2; }
+    .steps strong { font-size: 30px; align-self: end; }
+    .steps li > span:last-child { align-self: start; }
+  }
+
+  /* ── Phone ── */
+  @media (max-width: 600px) {
+    body { font-size: 16px; }
+    .hero { padding: 28px var(--pad) 72px; }
+    .hero .wrap { gap: 26px; }
+    .topline { font-size: 11px; }
+    .lede { font-size: 18px; }
+    .cta, .cta .btn { width: 100%; }
+    .btn { font-size: 24px; }
+    .frame { padding: 6px; }
+    .tab { padding: 8px 12px 6px; font-size: 11px; }
+    .hero .shot { margin-top: 18px; }
+    .peak { padding-bottom: 72px; }
+    .huge { -webkit-text-stroke-width: 2px; }
+    .facts dd { font-size: 44px; }
+    .band { padding: 72px var(--pad); }
+    .band .wrap { gap: 72px; }
+    .install { padding: 72px var(--pad); }
+    footer .wrap { padding-top: 56px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .btn, .big-link svg { transition: none; }
+    .btn:hover { transform: none; }
+  }
 </style>
 </head>
 <body>
-  <header class="top">
-    <a class="brand" href="/"><img src="/icon.png" width="28" height="28" alt="">CS Stats</a>
-  </header>
-
-  <main>
-    <section>
-      <h1>Add CS Stats to Steam</h1>
-      <p class="lede">Check any CS2 player in seconds: Premier and FACEIT ratings, a cheating verdict, their last matches and best clips, right on their Steam profile. Even from the in-game overlay.</p>
-
-      <div class="card">
-        <div class="state-installed" role="status">
-          <p class="ok">
-            <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="currentColor" opacity="0.18"/><path d="M7 12.5l3.2 3.2L17.5 8.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            CS Stats is installed and on
-          </p>
-          <a class="btn btn-blue" href="https://steamcommunity.com/my/">Open my Steam profile</a>
-          <p class="hint">Open any player's profile and their stats appear under it.</p>
+  <section class="hero">
+    <div class="wrap">
+      <div class="topline label"><span>CS Stats</span><span>Free · Chrome + CS2 overlay</span></div>
+      <h1 class="display">Every player.<br>Every stat.</h1>
+      <div class="intro">
+        <p class="lede">Open any Steam profile and CS Stats shows their Premier, FACEIT, a cheat verdict, last 10 matches and best clips. In your browser or straight from the CS2 overlay.</p>
+        <div class="cta when-web">
+          <a class="btn" data-add href="https://chromewebstore.google.com/detail/cs-stats/fdnhgmlohooaabloinhbgmkhpebckapp">Add to Chrome, free</a>
+          <span class="hint">In CS2: Shift+Tab → csstats.rohan.my</span>
         </div>
-
-        <div class="state-add">
-          <!-- Inside Steam's browser. The store opens in this same window: Steam sends new windows to the desktop browser. -->
-          <div class="on-steam-block">
-            <a class="btn btn-green" data-add href="https://chromewebstore.google.com/detail/cs-stats/fdnhgmlohooaabloinhbgmkhpebckapp">
-              <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
-              Add to Steam
-            </a>
-            <ol class="steps">
-              <li>Click <b>Add to Steam</b>. The Chrome Web Store opens right here, inside Steam.</li>
-              <li>Click <b>Add to Chrome</b>, then <b>Add extension</b>.</li>
-              <li>Open any Steam profile. The stats appear under it.</li>
-            </ol>
-          </div>
-
-          <!-- Any other browser: websites can't open Steam's browser, so explain the in-game route first. -->
-          <div class="on-web-block">
-            <h2 class="card-title">Add it to Steam</h2>
-            <p class="card-note">Steam only lets you add it from inside Steam. In-game it takes ten seconds:</p>
-            <ol class="steps">
-              <li>In CS2, press <kbd>Shift</kbd> + <kbd>Tab</kbd> and open the <b>web browser</b>.</li>
-              <li>Go to <span class="addr">csstats.rohan.my</span></li>
-              <li>Click <b>Add to Steam</b>, then <b>Add to Chrome</b>.</li>
-            </ol>
-            <div class="divider" role="presentation"></div>
-            <p class="card-note">Using Chrome, Edge, Brave or Opera GX on this PC?</p>
-            <a class="btn btn-secondary" data-add href="https://chromewebstore.google.com/detail/cs-stats/fdnhgmlohooaabloinhbgmkhpebckapp">
-              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
-              Add to Chrome
-            </a>
-          </div>
+        <div class="cta when-steam">
+          <a class="btn" data-add href="https://chromewebstore.google.com/detail/cs-stats/fdnhgmlohooaabloinhbgmkhpebckapp">Add to Steam</a>
+          <span class="hint">Then Add to Chrome → Add extension</span>
+        </div>
+        <div class="cta when-installed" role="status">
+          <p class="ok"><svg width="30" height="30" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#FFFFFF"/><path d="M7 12.5l3.2 3.2L17.5 8.5" fill="none" stroke="#E10A17" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Installed and on</p>
+          <a class="btn" href="https://steamcommunity.com/my/">Open my Steam profile</a>
+          <span class="hint">Open any profile and the stats appear under it.</span>
         </div>
       </div>
-    </section>
+      <figure class="shot">
+        <span class="tab label">Live on every Steam profile</span>
+        <div class="frame">
+          <img src="/stats.webp" srcset="/stats-sm.webp 978w, /stats.webp 1956w" sizes="(min-width: 1408px) 1260px, 94vw" width="1956" height="900" fetchpriority="high"
+            alt="The CS Stats panel on a Steam profile: commendations 278, 263 and 262, Premier season pins, a Legit verdict, 0 of 100 matches with banned players, Premier 31,299, FACEIT 3,210, aim 91.9, K/D 1.41, win rate 66.7%, time to damage 462 ms and a rank for every map">
+        </div>
+      </figure>
+    </div>
+  </section>
 
-    <figure class="shot">
-      <img src="/panel.webp" srcset="/panel-sm.webp 536w, /panel.webp 1072w" sizes="(min-width: 960px) 560px, calc(100vw - 32px)" width="1072" height="512"
-        alt="The CS Stats panel on a Steam profile: commendations, Premier season medals, a Legit verdict, Premier and FACEIT ratings, aim, K/D, win rate and map ranks">
-    </figure>
-  </main>
+  <section class="peak" aria-label="Example stats">
+    <div class="wrap">
+      <span class="label">Peak Premier</span>
+      <div class="huge" aria-hidden="true">31,299</div>
+      <dl class="facts">
+        <div><dt>FACEIT ELO</dt><dd>3,210</dd></div>
+        <div><dt>Aim rating</dt><dd>91.9</dd></div>
+        <div><dt>Time to damage</dt><dd>462ms</dd></div>
+        <div><dt>Account age</dt><dd>23 yrs</dd></div>
+      </dl>
+    </div>
+  </section>
+
+  <section class="band">
+    <div class="wrap">
+      <div class="feature">
+        <div class="feature-head">
+          <h2 class="display">Last ten<br>matches.</h2>
+          <div class="score" role="img" aria-label="Eight won, two lost"><b aria-hidden="true">8–2</b><span aria-hidden="true">Won<br>Lost</span></div>
+        </div>
+        <figure class="shot">
+          <span class="tab label">Map · mode · score · K-D</span>
+          <div class="frame">
+            <img src="/matches.webp" srcset="/matches-sm.webp 978w, /matches.webp 1956w" sizes="(min-width: 1408px) 1260px, 94vw" width="1956" height="1035" loading="lazy"
+              alt="The Matches section: ten Premier matches with map, score and kills and deaths, eight won and two lost">
+          </div>
+        </figure>
+      </div>
+
+      <div class="feature">
+        <div class="feature-head">
+          <h2 class="display">Twelve best<br>clips.</h2>
+          <div class="keys"><span>F <em>Full screen</em></span><span>← → <em>Next clip</em></span><span>Esc <em>Close</em></span></div>
+        </div>
+        <figure class="shot">
+          <span class="tab label">Best-rated on Allstar</span>
+          <div class="frame">
+            <img src="/clips.webp" srcset="/clips-sm.webp 978w, /clips.webp 1956w" sizes="(min-width: 1408px) 1260px, 94vw" width="1956" height="1253" loading="lazy"
+              alt="The Clips section: twelve best-rated Allstar clips such as ACE on Ancient, Inferno 1V5 Clutch and Nuke Wallbang M4A1 Ace">
+          </div>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="install">
+    <div class="wrap">
+      <h2 class="display">Ten seconds.<br>In-game.</h2>
+      <ol class="steps">
+        <li><span class="num">1</span><strong>Shift+Tab</strong><span>Open the CS2 overlay and its web browser.</span></li>
+        <li><span class="num">2</span><strong>csstats.rohan.my</strong><span>Type it once, press Add to Steam.</span></li>
+        <li><span class="num">3</span><strong>Add extension</strong><span>Confirm, and every profile shows stats.</span></li>
+      </ol>
+    </div>
+  </section>
 
   <footer>
-    Free and open source · <a href="https://github.com/rohzzn/csstats">GitHub</a> · Not affiliated with Valve or Steam
+    <div class="wrap">
+      <a class="big-link when-web" data-add href="https://chromewebstore.google.com/detail/cs-stats/fdnhgmlohooaabloinhbgmkhpebckapp">Add to <span class="keep">Chrome<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square"/></svg></span></a>
+      <a class="big-link when-steam" data-add href="https://chromewebstore.google.com/detail/cs-stats/fdnhgmlohooaabloinhbgmkhpebckapp">Add to <span class="keep">Steam<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square"/></svg></span></a>
+      <a class="big-link when-installed" href="https://steamcommunity.com/my/">Open my <span class="keep">profile<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="square"/></svg></span></a>
+      <div class="legal"><span>CS Stats · free · no sign-up</span><a href="https://github.com/rohzzn/csstats">Source on GitHub</a><span>Not affiliated with Valve</span></div>
+    </div>
   </footer>
 
 <script>
@@ -300,10 +278,8 @@
     }
     check();
     window.addEventListener("focus", check);
-    document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
-
-    // The store opens in this tab; when people come back (Back button or bfcache), check again.
     window.addEventListener("pageshow", check);
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) check(); });
   })();
 </script>
 </body>
