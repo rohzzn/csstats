@@ -32,7 +32,7 @@ CS Stats adds a Stats panel to every Steam profile, built in Steam's own style, 
 IS THIS PLAYER CHEATING?
 • A trust score from 0 to 100, or a clear verdict: Legit, Suspicious, Likely Cheating, VAC Banned or Game Banned
 • Hover the trust score for its breakdown: statistical, anomalies and account flags, plus any auto-flag reason
-• Hover the verdict to see why: time to damage, crosshair placement, headshot accuracy, aim rating, account age, FACEIT history and bans
+• Hover the verdict to see why it says what it says
 • Inventory value and CS2 playtime with the account age: cheat accounts rarely have either
 • "Played with banned": how many of their last 100 matches had a player who was later banned
 
@@ -40,7 +40,7 @@ HOW GOOD ARE THEY?
 • Premier rating in its in-game tier colour, peak or current with one click, with every season's peak on hover
 • FACEIT level and ELO, all-time peak or current with one click
 • Aim rating, K/D, win rate and their last 5 results
-• Time to damage, utility rating, account age and total matches across Premier, Competitive, Wingman and FACEIT
+• Time to damage, utility rating, account age and total matches across every mode
 • Wingman rank and competitive rank for every map
 
 THEIR CS2 PROFILE
@@ -49,7 +49,7 @@ THEIR CS2 PROFILE
 
 WHAT HAVE THEY BEEN PLAYING?
 • Their last 10 matches with map, mode, score and K-D, coloured by result
-• Their 12 best-rated Allstar clips: click one to watch it big or full screen, and flip through the rest
+• Their 12 best-rated clips: click one to watch it big or full screen, and flip through the rest
 
 YOUR FRIENDS
 • On your Steam friends list: a trust badge or ban tag on every friend, and counts of trusted, low-trust, flagged and banned friends (click one to show only those)
@@ -65,16 +65,16 @@ In CS2, press Shift+Tab, open the web browser, go to csstats.rohan.my and click 
 
 FEELS LIKE PART OF STEAM
 • Matches every Steam profile theme and works at any window size
-• Loads only on profiles, friends lists and FACEIT match rooms, and caches results for a few minutes
-• Two settings, peak or current for Premier and FACEIT, saved with your Chrome profile
+• Loads only where it has something to show, and caches results for a few minutes
+• Two settings, peak or current ratings, saved with your Chrome profile
 
 PRIVACY
-Stats come from Leetify, FACEIT, the Steam Web API, Allstar, csrep.gg (trust score) and the CS Stats server (for CS level, commendations and medals), looked up by the Steam IDs of the profile you're viewing, its friends on a friends list, or the players in a FACEIT match room. Nothing about you is collected or stored.
+Stats are looked up from public CS2 stats services and the CS Stats server, using only the Steam IDs of the profile you're viewing, its friends on a friends list, or the players in a match room. Nothing about you is collected or stored.
 
 A NOTE ON THE VERDICT
 It's an estimate from public stats, not proof. Great players can look suspicious and careful cheaters can look clean, so please don't harass or report anyone based on the verdict alone.
 
-CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT, Allstar or csrep.gg.
+CS Stats is an independent project and is not affiliated with Valve.
 ```
 
 ## What's new in 1.3.0
