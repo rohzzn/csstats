@@ -29,7 +29,7 @@
   display: none !important;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel, #spx-cs2-csrep-intel) .spx-shell {
+:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel) .spx-shell {
   container: spx / inline-size;
   padding: 0;
   border: 0;
@@ -38,17 +38,17 @@
   overflow: visible;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel, #spx-cs2-csrep-intel, #spx-cs2-header-medals) img[hidden],
-:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel, #spx-cs2-csrep-intel, #spx-cs2-header-medals) [hidden] {
+:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel, #spx-cs2-header-medals) img[hidden],
+:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel, #spx-cs2-header-medals) [hidden] {
   display: none !important;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel, #spx-cs2-csrep-intel) :focus-visible {
+:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel) :focus-visible {
   outline: 2px solid #66c0f4;
   outline-offset: 2px;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel, #spx-cs2-csrep-intel) [tabindex="0"]:focus:not(:focus-visible) {
+:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel) [tabindex="0"]:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -281,14 +281,14 @@
    Stats panel  (#spx-cs2-profile-intel)
    ══════════════════════════════════════════════════ */
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-row-list {
+#spx-cs2-profile-intel .spx-row-list {
   --spx-rail: 96px;
   --spx-gap: 29px;
   display: flex;
   flex-direction: column;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-provider-row {
+#spx-cs2-profile-intel .spx-provider-row {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -297,12 +297,12 @@
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-provider-row:first-child {
+#spx-cs2-profile-intel .spx-provider-row:first-child {
   border-top: none;
   padding-top: 2px;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-provider-row:has(> .spx-competitive-strip:last-child) {
+#spx-cs2-profile-intel .spx-provider-row:has(> .spx-competitive-strip:last-child) {
   padding-bottom: 12px;
 }
 
@@ -423,7 +423,7 @@
 
 /* ── Metric grid (dividers sit left of each item; the first item on every line is clipped) ── */
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-metric-grid {
+#spx-cs2-profile-intel .spx-metric-grid {
   --spx-gap: 29px;
   display: flex;
   flex-wrap: wrap;
@@ -435,12 +435,12 @@
   overflow-clip-margin: 4px;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-metric-grid > * {
+#spx-cs2-profile-intel .spx-metric-grid > * {
   position: relative;
   flex: 0 0 auto;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-metric-grid > *::before {
+#spx-cs2-profile-intel .spx-metric-grid > *::before {
   content: "";
   position: absolute;
   top: 0;
@@ -451,13 +451,13 @@
   pointer-events: none;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-metric {
+#spx-cs2-profile-intel .spx-metric {
   display: flex;
   flex-direction: column;
   min-width: 0;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-metric-label {
+#spx-cs2-profile-intel .spx-metric-label {
   height: 13px;
   font-size: 9px;
   line-height: 13px;
@@ -467,7 +467,7 @@
   white-space: nowrap;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-metric-value {
+#spx-cs2-profile-intel .spx-metric-value {
   display: flex;
   align-items: center;
   height: 30px;
@@ -589,7 +589,7 @@
 
 /* ── Premier rating badge ─────────────────────────── */
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-metric-premier {
+#spx-cs2-profile-intel .spx-metric-premier {
   display: flex;
   align-items: center;
   height: 30px;
@@ -607,7 +607,7 @@
   cursor: pointer;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-badge {
+#spx-cs2-profile-intel .spx-premier-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -637,7 +637,7 @@
   border-radius: 3px;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-metric-premier .spx-metric-value {
+#spx-cs2-profile-intel .spx-metric-premier .spx-metric-value {
   height: auto;
   margin-top: 0;
   font-size: 16px;
@@ -648,15 +648,15 @@
   transform: translateX(3px);
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-none .spx-premier-badge { background: rgba(150, 165, 180, 0.08); }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-none .spx-metric-value { color: #aabac7; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-grey .spx-metric-value { color: #c7d3db; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-lightblue .spx-metric-value { color: #79d8ff; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-blue .spx-metric-value { color: #86bdff; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-purple .spx-metric-value { color: #c398ff; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-pink .spx-metric-value { color: #ff7bd8; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-red .spx-metric-value { color: #ff7878; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-gold .spx-metric-value { color: #ffc95a; }
+#spx-cs2-profile-intel .spx-premier-none .spx-premier-badge { background: rgba(150, 165, 180, 0.08); }
+#spx-cs2-profile-intel .spx-premier-none .spx-metric-value { color: #aabac7; }
+#spx-cs2-profile-intel .spx-premier-grey .spx-metric-value { color: #c7d3db; }
+#spx-cs2-profile-intel .spx-premier-lightblue .spx-metric-value { color: #79d8ff; }
+#spx-cs2-profile-intel .spx-premier-blue .spx-metric-value { color: #86bdff; }
+#spx-cs2-profile-intel .spx-premier-purple .spx-metric-value { color: #c398ff; }
+#spx-cs2-profile-intel .spx-premier-pink .spx-metric-value { color: #ff7bd8; }
+#spx-cs2-profile-intel .spx-premier-red .spx-metric-value { color: #ff7878; }
+#spx-cs2-profile-intel .spx-premier-gold .spx-metric-value { color: #ffc95a; }
 
 /* ── Verdict ──────────────────────────────────────── */
 
@@ -703,11 +703,11 @@
 /* ── Trust score (csrep.gg) ───────────────────────── */
 
 /* Same band colours as the verdict tags: green, amber, red. */
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) :is(.spx-metric-trust, .spx-csrep-gauge) { --spx-trust: #8f98a0; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-trust-high { --spx-trust: #8bc53f; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-trust-medium { --spx-trust: #e5a33b; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-trust-low { --spx-trust: #ff6b5b; }
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-trust-critical { --spx-trust: #ff4d4d; }
+#spx-cs2-profile-intel .spx-metric-trust { --spx-trust: #8f98a0; }
+#spx-cs2-profile-intel .spx-trust-high { --spx-trust: #8bc53f; }
+#spx-cs2-profile-intel .spx-trust-medium { --spx-trust: #e5a33b; }
+#spx-cs2-profile-intel .spx-trust-low { --spx-trust: #ff6b5b; }
+#spx-cs2-profile-intel .spx-trust-critical { --spx-trust: #ff4d4d; }
 
 #spx-cs2-profile-intel .spx-metric-trust {
   cursor: default;
@@ -717,16 +717,16 @@
   gap: 7px;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-trust-ring {
+#spx-cs2-profile-intel .spx-trust-ring {
   display: block;
   flex: 0 0 auto;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-trust-track {
+#spx-cs2-profile-intel .spx-trust-track {
   stroke: rgba(255, 255, 255, 0.1);
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-trust-fill {
+#spx-cs2-profile-intel .spx-trust-fill {
   stroke: var(--spx-trust);
 }
 
@@ -737,7 +737,7 @@
 
 /* ── Per-map rank strip ───────────────────────────── */
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-competitive-strip {
+#spx-cs2-profile-intel .spx-competitive-strip {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(74px, 1fr));
   justify-items: center;
@@ -745,7 +745,7 @@
   margin-top: 4px;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-competitive-rank {
+#spx-cs2-profile-intel .spx-competitive-rank {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -753,14 +753,14 @@
   gap: 5px;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-competitive-image {
+#spx-cs2-profile-intel .spx-competitive-image {
   display: block;
   width: auto;
   height: 30px;
   object-fit: contain;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-competitive-map {
+#spx-cs2-profile-intel .spx-competitive-map {
   font-size: 9px;
   line-height: 11px;
   color: #6d8aa3;
@@ -809,12 +809,12 @@
 /* ── Narrow blocks ────────────────────────────────── */
 
 @container spx (max-width: 560px) {
-  :is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-metric-grid {
+  #spx-cs2-profile-intel .spx-metric-grid {
     --spx-gap: 21px;
     row-gap: 10px;
   }
 
-  :is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-metric-value {
+  #spx-cs2-profile-intel .spx-metric-value {
     font-size: 14px;
   }
 
@@ -847,16 +847,16 @@
     pointer-events: none;
   }
 
-  :is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-competitive-strip {
+  #spx-cs2-profile-intel .spx-competitive-strip {
     grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
   }
 
   /* Seven ranks fit on one line down to ~500px. */
-  :is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-competitive-strip {
+  #spx-cs2-profile-intel .spx-competitive-strip {
     gap: 8px;
   }
 
-  :is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-competitive-image {
+  #spx-cs2-profile-intel .spx-competitive-image {
     height: 26px;
   }
 
@@ -864,7 +864,7 @@
     font-size: 14px;
   }
 
-  :is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-row-list {
+  #spx-cs2-profile-intel .spx-row-list {
     --spx-gap: 21px;
   }
 
@@ -1380,7 +1380,7 @@
   }
 
   #spx-tooltip,
-  :is(#spx-cs2-profile-intel, #spx-cs2-csrep-intel) .spx-premier-badge,
+  #spx-cs2-profile-intel .spx-premier-badge,
   #spx-cs2-clips-intel .spx-clip-thumb,
   #spx-cs2-clips-intel .spx-clip-play,
   #spx-clip-player .spx-player-btn,
@@ -1389,215 +1389,3 @@
     transition: none;
   }
 }
-
-/* ══════════════════════════════════════════════════
-   CSRep  (#spx-cs2-csrep-intel) · temporary preview of csrep.gg data
-   ══════════════════════════════════════════════════ */
-
-#spx-cs2-csrep-intel { --spx-tone: #8f98a0; }
-#spx-cs2-csrep-intel .spx-tone-clean { --spx-tone: #8bc53f; }
-#spx-cs2-csrep-intel .spx-tone-watch { --spx-tone: #d6b84a; }
-#spx-cs2-csrep-intel .spx-tone-warn { --spx-tone: #e5a33b; }
-#spx-cs2-csrep-intel .spx-tone-bad { --spx-tone: #ff6b5b; }
-
-#spx-cs2-csrep-intel .spx-csrep-heading {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  font-size: 11px;
-  line-height: 14px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #8fb3cc;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-heading-detail {
-  color: #6d8aa3;
-  letter-spacing: 0.02em;
-  text-transform: none;
-}
-
-/* Reputation: big gauge, key facts, then the four anomaly signals. */
-#spx-cs2-csrep-intel .spx-csrep-rep {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  min-width: 0;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-rep-body {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-gauge {
-  position: relative;
-  flex: 0 0 auto;
-  width: 58px;
-  height: 58px;
-  cursor: default;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-gauge .spx-trust-ring {
-  position: absolute;
-  inset: 0;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-gauge-text {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-gauge-number {
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--spx-trust);
-  font-variant-numeric: tabular-nums;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-gauge-label {
-  margin-top: 3px;
-  font-size: 8px;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: #6d8aa3;
-}
-
-/* Status tag, styled like the verdict tag. */
-#spx-cs2-csrep-intel .spx-csrep-tag {
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--spx-tone) 14%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--spx-tone) 40%, transparent);
-  color: var(--spx-tone);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-signals {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-signal {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 7px;
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.035);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
-  font-size: 12px;
-  color: #c6d4df;
-  white-space: nowrap;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-signal-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-dot {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--spx-tone);
-  box-shadow: 0 0 6px color-mix(in srgb, var(--spx-tone) 55%, transparent);
-}
-
-#spx-cs2-csrep-intel .spx-csrep-signal-state {
-  margin-left: auto;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--spx-tone);
-}
-
-/* Performance: twelve stats; amber or red once past csrep's own suspicious thresholds. */
-#spx-cs2-csrep-intel .spx-csrep-stats {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 12px 18px;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-stat .spx-metric-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-#spx-cs2-csrep-intel .spx-flag-suspicious .spx-metric-value { color: #e5a33b; }
-#spx-cs2-csrep-intel .spx-flag-very .spx-metric-value { color: #ff6b5b; }
-#spx-cs2-csrep-intel .spx-csrep-unscored .spx-metric-value { color: #8f98a0; }
-
-/* Ranks: Premier per season (our tier badges), FACEIT, then every map. */
-#spx-cs2-csrep-intel .spx-csrep-ratings {
-  align-items: flex-start;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-season {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  height: auto;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-sub {
-  min-height: 13px;
-  font-size: 10px;
-  line-height: 13px;
-  color: #6d8aa3;
-  white-space: nowrap;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-maps {
-  margin-top: 0;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-links {
-  gap: 12px;
-  font-size: 14px;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-links a {
-  color: #66c0f4;
-  text-decoration: none;
-}
-
-#spx-cs2-csrep-intel .spx-csrep-links a:hover {
-  text-decoration: underline;
-}
-
-@container spx (max-width: 759px) {
-  #spx-cs2-csrep-intel .spx-csrep-signals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-
-@container spx (max-width: 559px) {
-  #spx-cs2-csrep-intel .spx-csrep-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
-
-@container spx (max-width: 419px) {
-  #spx-cs2-csrep-intel .spx-csrep-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  #spx-cs2-csrep-intel .spx-csrep-rep { align-items: flex-start; gap: 16px; }
-  #spx-cs2-csrep-intel .spx-csrep-signals { grid-template-columns: minmax(0, 1fr); }
-}
-

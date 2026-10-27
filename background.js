@@ -11,8 +11,8 @@ const SETTINGS = Object.freeze({
   faceitApiKey: "b0ce56e8-e9a2-45e7-82ee-7310a0549d0f",
   enableLeetify: true,
   enableFaceit: true,
-  // csrep.gg needs an API key, held by the CS Stats server (/providers/csrep). Off until that is set up.
-  enableCsrep: false,
+  // csrep.gg trust score, fetched through the CS Stats server, which holds the API key.
+  enableCsrep: true,
   // Public GC server first; a self-hosted server on this machine is the fallback.
   // The public server answers with CORS headers for extension origins, so it needs no host permission.
   gcServerUrls: ["https://csstats.rohan.my", "http://127.0.0.1:3000"],
@@ -1093,130 +1093,23 @@ async function fetchCsrepData(steamId, settings) {
   return makeProviderResult("csrep", "not_found", {});
 }
 
-const CSREP_SIGNALS = Object.freeze([
-  ["SKILL_GROUP_EXPECTATIONS", "Skill vs rank"],
-  ["MATCH_MANIPULATION", "Match manipulation"],
-  ["LOBBY_QUALITY", "Lobby quality"],
-  ["MEDAL_BOOSTING", "Medal boosting"]
-]);
-
-// [key, label, unit, decimals]
-const CSREP_METRICS = Object.freeze([
-  ["ttd", "Time to Damage", "ms", 0],
-  ["reaction_time", "Reaction Time", "ms", 0],
-  ["crosshair_placement", "Crosshair", "°", 1],
-  ["preaim", "Preaim", "°", 1],
-  ["kd_ratio", "K/D", "", 2],
-  ["adr", "ADR", "", 1],
-  ["accuracy", "Accuracy", "%", 1],
-  ["accuracy_head", "HS Accuracy", "%", 1],
-  ["wallbang_kill_percent", "Wallbang Kills", "%", 1],
-  ["smoke_kill_percent", "Smoke Kills", "%", 1],
-  ["hltv_rating_2", "HLTV 2.0", "", 2],
-  ["kast", "KAST", "%", 1]
-]);
-
-// csrep.gg's player, stats and anomalies responses, reshaped for the Steam row and the CSRep section.
-function normalizeCsrepData({ player, stats, anomalies }, steamId) {
+// Only the trust rating is used; nothing else from the profile is kept.
+function normalizeCsrepData({ player }, steamId) {
   const reputation = player?.reputation || {};
-  const ranks = player?.ranks || {};
-  const period = stats?.period || {};
-  const rankPair = (entry) => ({ current: asNumber(entry?.current), peak: asNumber(entry?.peak) });
-
-  const premierSeasons = Object.entries(ranks)
-    .map(([key, entry]) => {
-      const season = Number((key.match(/^premier:season(\d+)$/) || [])[1]);
-      return season ? { season, ...rankPair(entry) } : null;
-    })
-    .filter((entry) => entry && (entry.current || entry.peak))
-    .sort((left, right) => right.season - left.season);
-
-  // Every ranked map (the Stats strip keeps only the top six), best rank first, with its peak.
-  const competitive = Object.entries(ranks)
-    .filter(([key, entry]) => key.startsWith("competitive:") && asNumber(entry?.current) > 0)
-    .map(([key, entry]) => {
-      const rank = Math.max(1, Math.min(18, Math.round(asNumber(entry.current))));
-      const peak = asNumber(entry.peak);
-      return CSGO_RANK_ASSET_MAP[rank] ? {
-        mapName: formatMatchMapName(key.slice("competitive:".length)),
-        rank,
-        rankLabel: competitiveRankLabel(rank),
-        peakLabel: peak && peak > rank ? competitiveRankLabel(Math.min(18, Math.round(peak))) : "",
-        image: chrome.runtime.getURL(`csranks/${CSGO_RANK_ASSET_MAP[rank]}`)
-      } : null;
-    })
-    .filter(Boolean)
-    .sort((left, right) => right.rank - left.rank);
-
-  const metrics = CSREP_METRICS.map(([key, label, unit, decimals]) => {
-    const metric = stats?.metrics?.[key];
-    const value = asNumber(metric?.average);
-    if (value === null) return null;
-
-    const high = metric.direction === "high";
-    const beyond = (limit) => limit !== null && (high ? value >= limit : value <= limit);
-    const flag = beyond(asNumber(metric.very_suspicious)) ? "very" : beyond(asNumber(metric.suspicious)) ? "suspicious" : "ok";
-    return {
-      key,
-      label,
-      value: `${unit === "ms" ? Math.round(value) : value.toFixed(decimals)}${unit}`,
-      flag,
-      scored: metric.scoring_status === "SCORED",
-      threshold: asNumber(metric.suspicious) === null ? "" : `Suspicious ${high ? "≥" : "≤"} ${formatCsrepNumber(metric.suspicious, decimals)}${unit}`
-    };
-  }).filter(Boolean);
-
-  const links = [
-    player?.faceit_url ? { label: "FACEIT", url: String(player.faceit_url).replace("{lang}", "en") } : null,
-    player?.gamersclub_url ? { label: "GamersClub", url: String(player.gamersclub_url) } : null
-  ].filter((link) => link && /^https:\/\//i.test(link.url));
+  const score = asNumber(reputation.trust_score);
+  if (score === null) {
+    return makeProviderResult("csrep", "not_found", {});
+  }
 
   return makeProviderResult("csrep", "ready", {
-    title: "CSRep",
     url: `https://csrep.gg/player/${steamId}`,
     trust: {
-      score: asNumber(reputation.trust_score),
+      score,
       statistical: asNumber(reputation.statistical_trust),
-      anomalies: asNumber(reputation.breakdown?.anomalies),
       accountFlags: asNumber(reputation.breakdown?.account_flags)
     },
-    anomaly: {
-      severity: String(anomalies?.severity || "").toUpperCase() || null,
-      score: asNumber(anomalies?.score),
-      signals: CSREP_SIGNALS.map(([key, label]) => ({
-        key,
-        label,
-        severity: String(anomalies?.signals?.[key]?.severity || "").toUpperCase() || null,
-        score: asNumber(anomalies?.signals?.[key]?.score)
-      })).filter((signal) => signal.severity)
-    },
-    autoflag: player?.autoflag ? String(player.autoflag.reason || player.autoflag.label || player.autoflag) : null,
-    performance: {
-      matches: asNumber(period.total_available),
-      from: period.from || null,
-      to: period.to || null,
-      lowSample: Boolean(period.sample_warning),
-      metrics
-    },
-    ranks: {
-      premierSeasons,
-      competitive,
-      wingman: makeWingmanRanks(asNumber(ranks.wingman?.current))[0] || null,
-      faceit: rankPair(ranks.faceit)
-    },
-    account: {
-      hours: asNumber(player?.cs2_hours),
-      inventoryValue: asNumber(player?.inventory_value),
-      steamLevel: asNumber(player?.steam_level),
-      createdAt: player?.steam_created_at || null,
-      links
-    }
+    autoflag: player?.autoflag ? String(player.autoflag.reason || player.autoflag.label || player.autoflag) : null
   });
-}
-
-function formatCsrepNumber(value, decimals) {
-  const number = asNumber(value);
-  return number === null ? "" : (decimals ? number.toFixed(decimals) : String(Math.round(number)));
 }
 
 // Leetify flags every match that had a player who was banned afterwards.

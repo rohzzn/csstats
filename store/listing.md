@@ -1,6 +1,6 @@
-# Chrome Web Store listing — CS Stats 1.2.2
+# Chrome Web Store listing — CS Stats 1.2.3
 
-Package: `dist/cs-stats-1.2.2.zip` (build with `python tools/build-zip.py`)
+Package: `dist/cs-stats-1.2.3.zip` (build with `python tools/build-zip.py`)
 
 ## Store images (all 24-bit PNG, no alpha)
 
@@ -28,7 +28,7 @@ Size up any Counter-Strike 2 player without leaving Steam.
 CS Stats adds a Stats panel to every Steam profile, built in Steam's own style, so you can check a teammate, an opponent or a new friend request in seconds. No extra tabs, no searching, no sign-up.
 
 IS THIS PLAYER CHEATING?
-• A clear verdict: Legit, Suspicious, Likely Cheating, VAC Banned or Game Banned
+• A trust score from 0 to 100, or a clear verdict: Legit, Suspicious, Likely Cheating, VAC Banned or Game Banned
 • Hover to see why: time to damage, crosshair placement, headshot accuracy, aim rating, account age, FACEIT history and bans
 • "Played with banned": how many of their last 100 matches had a player who was later banned
 
@@ -56,12 +56,18 @@ FEELS LIKE PART OF STEAM
 • Two settings, peak or current for Premier and FACEIT, saved with your Chrome profile
 
 PRIVACY
-Stats come from Leetify, FACEIT, the Steam Web API, Allstar and the CS Stats server (for CS level, commendations and medals), looked up by the Steam ID of the profile you're viewing. Nothing about you is collected or stored.
+Stats come from Leetify, FACEIT, the Steam Web API, Allstar, csrep.gg (trust score) and the CS Stats server (for CS level, commendations and medals), looked up by the Steam ID of the profile you're viewing. Nothing about you is collected or stored.
 
 A NOTE ON THE VERDICT
 It's an estimate from public stats, not proof. Great players can look suspicious and careful cheaters can look clean, so please don't harass or report anyone based on the verdict alone.
 
-CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT or Allstar.
+CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT, Allstar or csrep.gg.
+```
+
+## What's new in 1.2.3
+
+```
+• Trust score on every profile: a 0–100 fair-play rating with the details on hover (bans still show first)
 ```
 
 ## What's new in 1.2.2

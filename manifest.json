@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "CS Stats",
   "short_name": "CS Stats",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "minimum_chrome_version": "111",
   "description": "Is this CS2 player any good, or cheating? See Premier, FACEIT ELO, a cheat verdict and recent matches on every Steam profile.",
   "permissions": [
