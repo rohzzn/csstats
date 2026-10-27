@@ -6,13 +6,15 @@ Package: `dist/cs-stats-1.3.0.zip` (build with `python tools/build-zip.py`)
 
 | File | Size | Use |
 |---|---|---|
-| `screenshot-01-stats.png` | 1280×800 | Screenshot 1 |
-| `screenshot-02-verdict.png` | 1280×800 | Screenshot 2 |
-| `screenshot-03-matches.png` | 1280×800 | Screenshot 3 |
-| `screenshot-04-clips-medals.png` | 1280×800 | Screenshot 4 |
-| `screenshot-05-themes.png` | 1280×800 | Screenshot 5 |
+| `screenshot-01-stats.png` | 1280×800 | Screenshot 1: the Stats panel |
+| `screenshot-02-trust.png` | 1280×800 | Screenshot 2: trust score and its breakdown |
+| `screenshot-03-match-preview.png` | 1280×800 | Screenshot 3: FACEIT match preview |
+| `screenshot-04-friends.png` | 1280×800 | Screenshot 4: friends list (friends' names and avatars blurred) |
+| `screenshot-05-matches-clips.png` | 1280×800 | Screenshot 5: matches and clips |
 | `promo-small-440x280.png` | 440×280 | Small promo tile |
 | `marquee-1400x560.png` | 1400×560 | Marquee promo tile |
+
+All in the install page's red and white style, from real renders of n0thing's profile and a real FACEIT match room.
 
 ## Summary (132 characters max)
 
