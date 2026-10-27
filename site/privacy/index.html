@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CS Stats: privacy policy</title>
+<meta name="description" content="What CS Stats reads, sends and stores: public Steam IDs only, no account, no ads, no tracking.">
+<meta name="theme-color" content="#E10A17">
+<link rel="icon" type="image/png" href="/icon.png">
+<style>
+  @font-face{font-family:'Big Shoulders Display';font-style:normal;font-weight:800 900;font-display:swap;src:url(/fonts/big-shoulders-display.woff2) format('woff2');}
+  @font-face{font-family:'JetBrains Mono';font-style:normal;font-weight:500 700;font-display:swap;src:url(/fonts/jetbrains-mono.woff2) format('woff2');}
+  @font-face{font-family:'Manrope';font-style:normal;font-weight:500 800;font-display:swap;src:url(/fonts/manrope.woff2) format('woff2');}
+
+  :root {
+    --red: #E10A17;
+    --deep: #A3000E;
+    --ink: #1A0507;
+    --white: #FFFFFF;
+    --pad: clamp(20px, 4.5vw, 64px);
+    --display: 'Big Shoulders Display', 'Arial Narrow', Impact, sans-serif;
+    --mono: 'JetBrains Mono', Consolas, monospace;
+    --body: 'Manrope', 'Segoe UI', system-ui, sans-serif;
+    color-scheme: light;
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; overflow-x: hidden; background: var(--white); color: var(--ink); font: 500 17px/1.6 var(--body); -webkit-font-smoothing: antialiased; }
+  a { color: var(--red); }
+  :focus-visible { outline: 3px solid var(--red); outline-offset: 3px; }
+  .wrap { max-width: 860px; margin: 0 auto; }
+
+  header { padding: 40px var(--pad) 56px; background: var(--red); color: var(--white); }
+  header a { color: inherit; }
+  .topline { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-bottom: 14px; border-bottom: 2px solid var(--white); font: 700 13px/1.4 var(--mono); letter-spacing: 0.1em; text-transform: uppercase; }
+  .topline a { text-decoration: none; }
+  h1 { margin: 34px 0 0; font: 900 clamp(52px, 11vw, 120px)/0.86 var(--display); text-transform: uppercase; }
+  .updated { margin: 18px 0 0; font: 700 13px/1.4 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; }
+
+  main { padding: 48px var(--pad) 72px; }
+  h2 { margin: 44px 0 10px; font: 900 32px/1 var(--display); letter-spacing: 0.01em; text-transform: uppercase; color: var(--red); }
+  h2:first-child { margin-top: 0; }
+  h3 { margin: 22px 0 6px; font: 800 17px/1.4 var(--body); }
+  p, ul { margin: 0 0 12px; }
+  ul { padding-left: 22px; }
+  li { margin: 4px 0; }
+  code { font: 500 0.9em var(--mono); overflow-wrap: anywhere; }
+
+  .table { margin: 14px 0 16px; border-top: 2px solid var(--ink); }
+  .table div { display: grid; grid-template-columns: minmax(0, 15em) minmax(0, 1fr); gap: 4px 24px; padding: 12px 0; border-bottom: 1px solid rgba(26, 5, 7, 0.16); }
+  .table b { font-weight: 800; }
+  .table span { color: #3d2a2c; }
+
+  footer { padding: 0 var(--pad) 40px; }
+  .legal { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 24px; padding-top: 16px; border-top: 2px solid var(--red); font: 700 12px/1.5 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--red); }
+
+  @media (max-width: 600px) {
+    .table div { grid-template-columns: minmax(0, 1fr); }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="wrap">
+      <div class="topline"><a href="/">CS Stats</a><span>Privacy policy</span></div>
+      <h1>Your data, kept out of it</h1>
+      <p class="updated">Last updated · 27 Oct 2026</p>
+    </div>
+  </header>
+
+  <main>
+    <div class="wrap">
+      <h2>Overview</h2>
+      <p>CS Stats shows public Counter-Strike 2 stats where you look players up: on Steam Community profiles and friends lists, and in FACEIT match rooms. It needs no account, runs no advertising or analytics, does not sell data and does not track your browsing.</p>
+
+      <h2>Where it runs</h2>
+      <ul>
+        <li>Steam Community profile and friends pages (<code>steamcommunity.com/id/…</code> and <code>steamcommunity.com/profiles/…</code>)</li>
+        <li>FACEIT match rooms (<code>www.faceit.com/…/cs2/room/…</code>)</li>
+      </ul>
+      <p>It reads nothing from any other page.</p>
+
+      <h2>What it reads and sends</h2>
+      <p>To look players up, the extension reads public Steam64 IDs:</p>
+      <ul>
+        <li>the profile you are viewing,</li>
+        <li>the friends shown on a Steam friends list,</li>
+        <li>the ten players in a FACEIT match room (taken from FACEIT's API, using the room's match ID).</li>
+      </ul>
+      <p>On your own profile, it also loads your Steam friends page from steamcommunity.com, the way your browser normally would, to get your friends' Steam IDs.</p>
+      <p>These IDs (and, for FACEIT, the match ID and FACEIT player IDs) are sent only to these services:</p>
+      <div class="table" role="table" aria-label="Services and what they are used for">
+        <div role="row"><b role="cell">Steam Web API<br><code>api.steampowered.com</code></b><span role="cell">Account creation date, VAC and game bans</span></div>
+        <div role="row"><b role="cell">FACEIT<br><code>open.faceit.com</code>, <code>www.faceit.com</code></b><span role="cell">FACEIT level, ELO and stats, ELO history for the peak, and match room teams</span></div>
+        <div role="row"><b role="cell">Leetify public API<br><code>api-public.cs-prod.leetify.com</code></b><span role="cell">Premier rating, performance stats, ranks and recent matches</span></div>
+        <div role="row"><b role="cell">Allstar<br><code>a1.allstar.gg</code></b><span role="cell">The player's CS2 clips</span></div>
+        <div role="row"><b role="cell">CS Stats server<br><code>csstats.rohan.my</code></b><span role="cell">CS level, commendations and medals from Valve's CS2 Game Coordinator; Leetify data for players its public API doesn't cover; trust scores from csrep.gg</span></div>
+      </div>
+      <p>The CS Stats server passes a Steam64 ID on to Valve's Game Coordinator, Leetify or csrep.gg only to answer that lookup.</p>
+
+      <h2>What is stored</h2>
+      <h3>In your browser</h3>
+      <ul>
+        <li>Two display preferences (peak or current Premier rating and FACEIT ELO), in Chrome's synced extension storage.</li>
+        <li>The Steam ID you are signed in to Steam Community with, in local extension storage on this device only, so a FACEIT match preview can mark your team. It is never sent anywhere.</li>
+        <li>Whether you collapsed a match preview, per match, in that FACEIT tab's session storage until the tab is closed.</li>
+        <li>Lookup results, in memory for up to ten minutes.</li>
+      </ul>
+      <h3>On the CS Stats server</h3>
+      <ul>
+        <li>Game Coordinator profile data, keyed by public Steam64 ID: fresh for five minutes and kept as a fallback for up to 30 days.</li>
+        <li>Other provider responses: no longer than 24 hours. Trust data from csrep.gg is refreshed after 12 hours and deleted after 24 hours.</li>
+        <li>A monthly count of trust lookups (a number only, no IDs).</li>
+        <li>IP addresses are used in memory for one-minute rate limiting and are not stored. Error logs kept in memory may include a Steam64 ID when a lookup fails.</li>
+      </ul>
+      <p>The server does not build user profiles or link requests to a Chrome or Google account. Cloudflare provides HTTPS for the CS Stats server and may process connection data such as IP addresses under its own privacy policy.</p>
+
+      <h2>Sharing</h2>
+      <p>Steam64 IDs go only to the services above, only to show the stats you are looking at. CS Stats does not sell data, use it for advertising or creditworthiness, or transfer it for anything unrelated to showing stats.</p>
+
+      <h2>Security</h2>
+      <p>All of the extension's code ships in its package; it runs no remotely hosted code. The trust-score API key is held only on the CS Stats server.</p>
+
+      <h2>Contact</h2>
+      <p>For privacy questions, contact <a href="mailto:work@rohzzn.me">work@rohzzn.me</a>.</p>
+    </div>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <div class="legal"><a href="/">CS Stats</a><a href="https://github.com/rohzzn/csstats">Source on GitHub</a><span>Not affiliated with Valve</span></div>
+    </div>
+  </footer>
+</body>
+</html>
