@@ -4,7 +4,7 @@ A Chrome extension that shows CS2 player stats directly on Steam profiles — no
 
 ## What it shows
 
-Every Steam profile gets a **Stats** showcase, a **Matches** showcase (when Leetify has recent matches), a **Clips** showcase (when the player has clips) and CS2 medals in the profile header.
+Every Steam profile gets a **Stats** showcase, a **Matches** showcase (when Leetify has recent matches), a **Clips** showcase (when the player has clips) and CS2 medals in the profile header. Friends lists get trust badges and ban tags, your own profile gets a **Friends** section, and every FACEIT match room gets a **match preview**.
 
 ### Stats showcase (top → bottom)
 
@@ -15,7 +15,7 @@ Every Steam profile gets a **Stats** showcase, a **Matches** showcase (when Leet
 | **Per-map ranks** | Wingman rank + competitive rank for each map | Leetify (Wingman from the GC server when available) |
 
 - **Every player Leetify has seen gets stats.** Leetify's public API only covers Leetify's own users; for anyone else it answers 404, so the extension falls back to the data Leetify's website shows (fetched through the stats server's `/providers/leetify/<steam64>`). That data has no match dates and no banned-player flags, so those are left out.
-- **Trust score.** When csrep.gg has the player, the verdict tag's spot shows their 0–100 trust rating (a ban still shows the red ban tag instead). It comes through the stats server's `/providers/csrep/<steam64>`, which holds the API key (`CSREP_API_KEY` in `server/.env`), caches each player for 12 hours (never over csrep's 24-hour limit), skips redacted or deleted csrep profiles and stops at 4,800 requests a month (`CSREP_MONTHLY_LIMIT`). Without csrep data the extension's own verdict shows.
+- **Trust score.** When csrep.gg has the player, the verdict tag's spot shows their 0–100 trust rating (a ban still shows the red ban tag instead). Its hover shows the breakdown as bars (statistical, anomalies, account flags), the account bonus, how fresh the data is and any auto-flag reason in red. The same lookup adds inventory value and CS2 playtime to the Account Age hover, each Premier season's peak to the Premier hover (and the all-time Premier peak to the badge), the all-time FACEIT peak (used when it beats the 1,000-game history), and GamersClub / Cybershoke links under the ratings. It comes through the stats server's `/providers/csrep/<steam64>`, which holds the API key (`CSREP_API_KEY` in `server/.env`), caches each player for 12 hours (never over csrep's 24-hour limit), skips redacted or deleted csrep profiles and stops at 4,800 requests a month (`CSREP_MONTHLY_LIMIT`). Without csrep data the extension's own verdict shows.
 - Metrics without data are left out. Without a Leetify profile, the FACEIT level, ELO, K/D and HS% take the Leetify stats' place. On narrow screens the ratings sit above a two-column grid.
 - **Premier** is colour-coded to match the in-game tier (grey → light blue → blue → purple → pink → red → gold). Click the badge to switch between current and peak rating; hover it to see the other value.
 - **FACEIT ELO** shows the peak by default, and the level badge matches the ELO on display. Click it to switch to the current ELO; hover it to see which one is showing. The peak comes from FACEIT's match history (up to the last 1,000 games); if that history can't be loaded, only the current ELO is shown.
@@ -24,6 +24,17 @@ Every Steam profile gets a **Stats** showcase, a **Matches** showcase (when Leet
 - **Matches** always shows the past **10** matches: map, mode, score and K-D. The coloured edge and score show the result (green win, red loss, grey draw).
 - **Clips** shows the player's 12 best-rated Allstar clips (Allstar's own "Best" ranking) in three rows of four (three rows of two on narrow screens). Click one to watch it in a large player: full screen with the button or **F**, switch clips with the arrows or **← →**, close with **Esc**.
 - **Header medals** (CS2 coins, pins, service medals and trophies) sit next to the persona name and page with arrows when they don't all fit. Premier season medals are shown in the Steam row instead, not here.
+
+### Friends
+
+- **Friends list** (`/friends/`): a trust badge, VAC / game ban tag or "–" (no trust data) on every friend, and a summary strip with Friends · Trusted (80+) · Low trust (50–79) · Flagged (under 50 or auto-flagged) · Banned. Click a number to show only those friends. Bans come from Steam for every friend at once; trust fills in from what the stats server already has, then for tiles as they scroll into view.
+- **Friends section** on your own profile (other profiles skip it): the same counts and up to five friends worth a look (banned first, most recent ban first, then the lowest trust). It reads your friends page, so it works with a private friends list, and it never starts new trust lookups.
+
+### FACEIT match preview
+
+On every FACEIT match room (`faceit.com/…/cs2/room/…`) a panel opens on top of the page: both teams with trust, peak Premier, peak FACEIT (level badge to match) and each player's best map in the room's pool, each team's **win chance** (Elo expectation from both rosters' average FACEIT Elo, nudged by both sides' record on the picked map) and a **match prediction** (each side's win rate per map; within 3 points is a coin flip). It stays up after the veto with the picked map highlighted, refreshes every 30 seconds until the match ends, and the arrow collapses it to one line (remembered per match). Rows turn red for a ban, an auto-flag or trust under 50. When your Steam account is in the room, the extension knows it from Steam Community pages you've opened and labels the sides **Your team** and **Enemy team**.
+
+Premier and matchmaking have no live match page on the web, and CS2's Game Coordinator doesn't answer live-game lookups for other players, so the preview is FACEIT only.
 
 ### Cheating verdict
 
@@ -61,7 +72,7 @@ The page is `site/` (static files). On the Mac it is served from `~/srv/csstats-
 
 ## Steam stats server
 
-CS level, commendations, Premier season medals and header medals come from a small server that connects to the CS2 Game Coordinator using a spare Steam account. The extension calls the public instance at `https://csstats.rohan.my` (only `/profile/<steam64>` is exposed, through a Cloudflare Tunnel), and falls back to a self-hosted server on this computer at `http://127.0.0.1:3000`.
+CS level, commendations, Premier season medals and header medals come from a small server that connects to the CS2 Game Coordinator using a spare Steam account. The extension calls the public instance at `https://csstats.rohan.my` (only `/profile/<steam64>`, `/providers/<provider>/<steam64>` and `/trust` are exposed, through a Cloudflare Tunnel), and falls back to a self-hosted server on this computer at `http://127.0.0.1:3000`.
 
 To self-host your own copy, follow the steps below.
 
@@ -91,6 +102,10 @@ docker compose up -d --force-recreate
 After a successful login, the server saves a refresh token in the Docker volume. You can remove `STEAM_BOT_GUARD_CODE` from `server/.env` after that.
 
 If the bot account has a **Mobile Authenticator**, set `STEAM_BOT_SHARED_SECRET` in `server/.env` and the server will generate codes automatically.
+
+### Trust lookups for many players
+
+`GET /trust?ids=<steam64>,<steam64>…[&mode=bulk]` (up to 100 IDs) answers friends lists and match rooms in one call with only what they show (trust score, auto-flag, FACEIT and Premier peaks). Without `mode=bulk` it reads the cache only and costs nothing; with it, each call may start up to 20 new csrep lookups, and bulk lookups may only use `CSREP_BULK_SHARE` (default 0.5) of the monthly allowance so the profile trust score never runs dry. `exhausted: true` in the answer means the bulk share is used up.
 
 ### How it works
 
@@ -151,4 +166,4 @@ CSStats (csstats.gg) is no longer used.
 
 ## Privacy
 
-The extension reads the Steam64 ID from the profile page you are already viewing. That ID is used to look up stats from the services listed above. Responses are cached in memory for a few minutes; nothing is stored or transmitted anywhere other than those services. The only thing saved is your Premier rating preference (Chrome sync storage). GC lookups are sent to the local proxy server running on this computer.
+The extension reads the Steam64 ID from the profile page you are already viewing (or the IDs on a friends list or in a FACEIT match room). Those IDs are used to look up stats from the services listed above. The Steam ID you're signed in to Steam Community with is kept in local storage only, to mark your team in FACEIT match previews. Responses are cached in memory for a few minutes; nothing is stored or transmitted anywhere other than those services. The only thing saved is your Premier rating preference (Chrome sync storage). GC lookups are sent to the local proxy server running on this computer.

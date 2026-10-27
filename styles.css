@@ -4,7 +4,8 @@
 
 #spx-cs2-profile-intel,
 #spx-cs2-matches-intel,
-#spx-cs2-clips-intel {
+#spx-cs2-clips-intel,
+#spx-cs2-friends {
   display: flow-root;
 }
 
@@ -24,12 +25,14 @@
 #spx-cs2-profile-intel[hidden],
 #spx-cs2-matches-intel[hidden],
 #spx-cs2-clips-intel[hidden],
+#spx-cs2-friends[hidden],
 #spx-cs2-matches-intel:empty,
-#spx-cs2-clips-intel:empty {
+#spx-cs2-clips-intel:empty,
+#spx-cs2-friends:empty {
   display: none !important;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel) .spx-shell {
+:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel, #spx-cs2-friends) .spx-shell {
   container: spx / inline-size;
   padding: 0;
   border: 0;
@@ -43,12 +46,12 @@
   display: none !important;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel) :focus-visible {
+:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel, #spx-cs2-friends) :focus-visible {
   outline: 2px solid #66c0f4;
   outline-offset: 2px;
 }
 
-:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel) [tabindex="0"]:focus:not(:focus-visible) {
+:is(#spx-cs2-profile-intel, #spx-cs2-matches-intel, #spx-cs2-clips-intel, #spx-cs2-friends) [tabindex="0"]:focus:not(:focus-visible) {
   outline: none;
 }
 
@@ -152,6 +155,51 @@
 #spx-tooltip .spx-tooltip-note {
   margin-top: 5px;
   color: #8f98a0;
+}
+
+#spx-tooltip .spx-tooltip-alert {
+  margin-top: 3px;
+  color: #ff8f8f;
+  font-weight: 600;
+}
+
+/* Trust breakdown: label, bar, number. */
+#spx-tooltip .spx-tooltip-bars {
+  display: grid;
+  gap: 4px;
+  min-width: 190px;
+  margin: 6px 0 2px;
+}
+
+#spx-tooltip .spx-tooltip-bar {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 8px;
+}
+
+#spx-tooltip .spx-tooltip-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+}
+
+#spx-tooltip .spx-tooltip-fill {
+  display: block;
+  height: 100%;
+  background: var(--spx-trust);
+}
+
+#spx-tooltip .spx-tooltip-bar b {
+  color: #ffffff;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+#spx-tooltip .spx-tooltip-bars + .spx-tooltip-line {
+  margin-top: 4px;
 }
 
 /* ══════════════════════════════════════════════════
@@ -700,14 +748,14 @@
   color: #ff8f8f;
 }
 
-/* ── Trust score (csrep.gg) ───────────────────────── */
+/* ── Trust score ───────────────────────────────────── */
 
-/* Same band colours as the verdict tags: green, amber, red. */
-#spx-cs2-profile-intel .spx-metric-trust { --spx-trust: #8f98a0; }
-#spx-cs2-profile-intel .spx-trust-high { --spx-trust: #8bc53f; }
-#spx-cs2-profile-intel .spx-trust-medium { --spx-trust: #e5a33b; }
-#spx-cs2-profile-intel .spx-trust-low { --spx-trust: #ff6b5b; }
-#spx-cs2-profile-intel .spx-trust-critical { --spx-trust: #ff4d4d; }
+/* Same band colours as the verdict tags: green, amber, red. Global: friend tiles and tooltips use them too. */
+.spx-metric-trust { --spx-trust: #8f98a0; }
+.spx-trust-high { --spx-trust: #8bc53f; }
+.spx-trust-medium { --spx-trust: #e5a33b; }
+.spx-trust-low { --spx-trust: #ff6b5b; }
+.spx-trust-critical { --spx-trust: #ff4d4d; }
 
 #spx-cs2-profile-intel .spx-metric-trust {
   cursor: default;
@@ -717,22 +765,51 @@
   gap: 7px;
 }
 
-#spx-cs2-profile-intel .spx-trust-ring {
+.spx-trust-ring {
   display: block;
   flex: 0 0 auto;
 }
 
-#spx-cs2-profile-intel .spx-trust-track {
+.spx-trust-track {
   stroke: rgba(255, 255, 255, 0.1);
 }
 
-#spx-cs2-profile-intel .spx-trust-fill {
+.spx-trust-fill {
   stroke: var(--spx-trust);
 }
 
 #spx-cs2-profile-intel .spx-trust-number {
   color: var(--spx-trust);
   font-variant-numeric: tabular-nums;
+}
+
+/* ── Other platforms, under the ratings ────────────── */
+
+#spx-cs2-profile-intel .spx-platforms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+#spx-cs2-profile-intel .spx-platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+  color: #c6d4df;
+  font-size: 12px;
+  text-decoration: none;
+}
+
+#spx-cs2-profile-intel a.spx-platform:hover,
+#spx-cs2-profile-intel a.spx-platform:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
 }
 
 /* ── Per-map rank strip ───────────────────────────── */
@@ -1388,4 +1465,233 @@
   .profile_header .spx-header-medal-nav {
     transition: none;
   }
+}
+
+/* ══════════════════════════════════════════════════
+   Friends  (friends page: #spx-friends-summary + tile badges · own profile: #spx-cs2-friends)
+   ══════════════════════════════════════════════════ */
+
+.spx-friends-counts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.spx-friends-count {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 22px;
+  border: 0;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: transparent;
+  color: #dde4ec;
+  font: inherit;
+  text-align: left;
+}
+
+.spx-friends-count:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+button.spx-friends-count {
+  border-radius: 0;
+  cursor: pointer;
+}
+
+button.spx-friends-count:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+button.spx-friends-count:not(:disabled):hover .spx-friends-count-value,
+button.spx-friends-count[aria-pressed="true"] .spx-friends-count-value {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
+.spx-friends-count-label {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  line-height: 13px;
+  text-transform: uppercase;
+  color: #6d8aa3;
+}
+
+.spx-friends-count-value {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 26px;
+  font-variant-numeric: tabular-nums;
+}
+
+.spx-friends-trusted .spx-friends-count-value { color: #8bc53f; }
+.spx-friends-low .spx-friends-count-value { color: #e5a33b; }
+.spx-friends-flagged .spx-friends-count-value { color: #ff6b5b; }
+.spx-friends-banned .spx-friends-count-value { color: #ff8f8f; }
+
+/* Trust pill, VAC tag or "–" */
+.spx-friend-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.5);
+  color: var(--spx-trust, #8f98a0);
+  font-family: "Motiva Sans", Arial, Helvetica, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+.spx-friend-tag.spx-friend-banned {
+  border-radius: 3px;
+  background: rgba(255, 77, 77, 0.26);
+  box-shadow: inset 0 0 0 1px rgba(255, 77, 77, 0.6);
+  color: #ff8f8f;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.spx-friend-tag.spx-friend-none {
+  color: #8f98a0;
+  font-weight: 600;
+}
+
+/* ── Friends page ── */
+
+#spx-friends-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 10px 0 14px;
+  padding: 14px 18px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  font-family: "Motiva Sans", Arial, Helvetica, sans-serif;
+}
+
+#spx-friends-summary .spx-friends-hint {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: #8f98a0;
+}
+
+#spx-friends-summary :focus-visible,
+.spx-friend-badge :focus-visible {
+  outline: 2px solid #66c0f4;
+  outline-offset: 2px;
+}
+
+.friend_block_v2.spx-has-badge {
+  position: relative;
+}
+
+.friend_block_v2.spx-has-badge .friend_block_content {
+  padding-right: 64px;
+}
+
+/* Above Steam's full-tile link so the badge keeps its tooltip. */
+.spx-friend-badge {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  z-index: 3;
+  transform: translateY(-50%);
+}
+
+#search_results[data-spx-filter="trusted"] .friend_block_v2:not([data-spx-band="trusted"]),
+#search_results[data-spx-filter="low"] .friend_block_v2:not([data-spx-band="low"]),
+#search_results[data-spx-filter="flagged"] .friend_block_v2:not([data-spx-band="flagged"]),
+#search_results[data-spx-filter="banned"] .friend_block_v2:not([data-spx-band="banned"]) {
+  display: none !important;
+}
+
+/* ── Friends section on your own profile ── */
+
+#spx-cs2-friends .spx-friends-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#spx-cs2-friends .spx-friends-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #9fb0bf;
+}
+
+#spx-cs2-friends .spx-friends-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+#spx-cs2-friends .spx-friend-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 10px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+#spx-cs2-friends .spx-friend-avatar {
+  display: block;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+#spx-cs2-friends .spx-friend-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #dde4ec;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#spx-cs2-friends .spx-friend-name:hover {
+  color: #ffffff;
+}
+
+#spx-cs2-friends .spx-friends-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: #8f98a0;
+}
+
+#spx-cs2-friends .spx-friends-all {
+  color: #66c0f4;
+  font-size: 13px;
+}
+
+#spx-cs2-friends .spx-friends-all:hover {
+  color: #ffffff;
+}
+
+#spx-cs2-friends .spx-inline-note {
+  padding: 4px 0;
+  color: #8ca7c2;
+  font-size: 12px;
 }

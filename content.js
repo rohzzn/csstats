@@ -3,9 +3,10 @@
   const MATCHES_ID = "spx-cs2-matches-intel";
   const CLIPS_ID = "spx-cs2-clips-intel";
   const HEADER_MEDALS_ID = "spx-cs2-header-medals";
+  const FRIENDS_ID = "spx-cs2-friends";
   const TOOLTIP_ID = "spx-tooltip";
   const PLAYER_ID = "spx-clip-player";
-  const ROOT_SELECTOR = `#${ROOT_ID}, #${MATCHES_ID}, #${CLIPS_ID}, #${HEADER_MEDALS_ID}`;
+  const ROOT_SELECTOR = `#${ROOT_ID}, #${MATCHES_ID}, #${CLIPS_ID}, #${HEADER_MEDALS_ID}, #${FRIENDS_ID}, #spx-friends-summary, .spx-friend-badge`;
   const DEFAULT_ERROR = "The extension could not load provider data.";
   const MATCH_LIMIT = 10;
   const CLIP_LIMIT = 12; // three rows of four (two per row, three rows, on narrow screens)
@@ -24,6 +25,9 @@
   // Second grid row, column-aligned under Aim · K/D · Win Rate · Last 5.
   const INSIGHT_ORDER = ["Time to Damage", "Utility", "Total Matches", "Account Age"];
   const PROFILE_PATH = /^\/(id|profiles)\/[^/]+\/?$/;
+  const FRIENDS_PATH = /^\/(id|profiles)\/[^/]+\/friends\/?$/;
+  const FRIEND_TILE = ".friend_block_v2[data-steamid]";
+  const FRIENDS_SUMMARY_ID = "spx-friends-summary";
   const PREMIER_BADGE_ASSETS = Object.freeze({
     grey: chrome.runtime.getURL("premier/0-4999.png"),
     lightblue: chrome.runtime.getURL("premier/5000-9999.png"),
@@ -57,6 +61,9 @@
     player: { open: false, list: [], index: 0, opener: null, scroll: "" }
   };
 
+  // Friends page (/friends/): tiles by Steam ID, what's known about each, and the lookup queue.
+  const friendsPage = { list: null, tiles: new Map(), bans: {}, trust: {}, tries: {}, queue: new Set(), timer: 0, filter: "", busy: false };
+
   let resizeQueued = false;
 
   window.addEventListener("resize", () => {
@@ -82,13 +89,19 @@
   start();
 
   function start() {
+    const mySteamId = rememberMySteamId();
+    if (FRIENDS_PATH.test(window.location.pathname)) {
+      startFriendsPage();
+      return;
+    }
+
     if (!PROFILE_PATH.test(window.location.pathname) && !document.documentElement.hasAttribute("data-spx-harness")) {
       return;
     }
 
     waitForSteamProfile()
       .then((context) => {
-        mount(context);
+        mount({ ...context, ownProfile: Boolean(mySteamId) && mySteamId === context.steamId });
         loadBundle();
       })
       .catch((error) => {
@@ -186,6 +199,15 @@
     bindRoot(state.clipsRoot, handleClipsClick);
 
     renderLoading();
+
+    // Your own profile only: a Friends section under Clips.
+    if (context.ownProfile) {
+      const friendsRoot = ensureRoot(FRIENDS_ID);
+      state.clipsRoot.insertAdjacentElement("afterend", friendsRoot);
+      bindRoot(friendsRoot, null);
+      setSection(friendsRoot, "");
+      loadFriendsSection(friendsRoot, state.profileUrl);
+    }
   }
 
   function ensureRoot(id) {
@@ -397,17 +419,18 @@
     };
   }
 
-  function renderPerformanceRow({ leetify, faceit, insights }) {
+  function renderPerformanceRow({ leetify, faceit, insights, csrep }) {
     const leetifyMetrics = listOf(leetify?.metrics);
     const premier = leetifyMetrics.find(isPremierMetric);
     const ratings = [
-      premier ? renderPremierMetric(premier) : "",
+      premier ? renderPremierMetric(premier, csrep?.premierSeasons) : "",
       faceit ? renderFaceitMetric(faceit) : ""
     ].filter(Boolean);
     const primary = leetify
       ? leetifyMetrics.filter((metric) => !isPremierMetric(metric))
       : ["K/D", "HS%"].map((label) => listOf(faceit?.metrics).find((metric) => metric.label === label)).filter(Boolean);
-    const secondary = sortByOrder(listOf(insights?.metrics), INSIGHT_ORDER);
+    const secondary = sortByOrder(listOf(insights?.metrics), INSIGHT_ORDER).map((metric) => withAccountDetails(metric, csrep));
+    const platforms = renderPlatformLinks(csrep?.platforms);
 
     if (!ratings.length && !primary.length && !secondary.length) {
       return null;
@@ -433,7 +456,7 @@
 
     return {
       id: leetify ? "leetify" : "performance",
-      body: `<div class="spx-perf${hasRail ? "" : " spx-perf-norail"}">${cells.join("")}</div>`
+      body: `<div class="spx-perf${hasRail ? "" : " spx-perf-norail"}">${cells.join("")}</div>${platforms}`
     };
   }
 
@@ -590,32 +613,45 @@
   // ── Trust score ───────────────────────────────────
 
   function renderTrustMetric(csrep) {
-    const score = csrep.trust.score;
+    const trust = csrep.trust;
+    const score = trust.score;
     const shown = formatTrustScore(score);
-    const lines = describeTrust(csrep);
+    const title = `Trust score ${shown} / 100 · ${getTrustWord(score)}`;
+    // The three parts behind the score, 0–100 each (account flags 100 = none raised).
+    const bars = [["Statistical", trust.statistical], ["Anomalies", trust.anomalies], ["Account flags", trust.accountFlags]]
+      .filter(([, value]) => Number.isFinite(value))
+      .map(([label, value]) => [label, Math.round(value * 100)]);
+    const detail = [
+      trust.accountBonus > 0 ? `Account bonus +${Math.round(trust.accountBonus * 100)}%` : "",
+      formatUpdatedAgo(csrep.refreshedAt)
+    ].filter(Boolean).join(" · ");
+    const alert = csrep.autoflag ? `Auto-flagged: ${csrep.autoflag}` : "";
     // The score is probabilistic: keep that framing wherever it shows.
     const note = "An estimate from public data, not proof of cheating or of fair play.";
 
     return `
       <div class="spx-metric spx-metric-trust spx-trust-${getTrustBand(score)}" tabindex="0" role="group"
-        data-spx-tip="${escapeAttribute(lines.join("\n"))}"
-        data-spx-tip-title="${escapeAttribute(`Trust score ${shown} / 100`)}"
+        data-spx-tip="${escapeAttribute(detail)}"
+        data-spx-tip-title="${escapeAttribute(title)}"
+        data-spx-tip-alert="${escapeAttribute(alert)}"
+        data-spx-tip-bars="${escapeAttribute(JSON.stringify(bars))}"
         data-spx-tip-note="${escapeAttribute(note)}"
-        aria-label="${escapeAttribute([`Trust score ${shown} out of 100`, ...lines, note].join(". "))}">
+        aria-label="${escapeAttribute([title, alert, ...bars.map(([label, value]) => `${label} ${value}`), detail, note].filter(Boolean).join(". "))}">
         <div class="spx-metric-label">Trust score</div>
         <div class="spx-metric-value">${renderTrustRing(score, 18, 2.5)}<span class="spx-trust-number">${shown}</span></div>
       </div>
     `;
   }
 
-  function describeTrust(csrep) {
-    const trust = csrep.trust || {};
-    return [
-      getTrustWord(trust.score),
-      Number.isFinite(trust.statistical) ? `Statistical trust ${Math.round(trust.statistical * 100)}%` : "",
-      trust.accountFlags === 1 ? "No account flags" : Number.isFinite(trust.accountFlags) ? "Account flags raised" : "",
-      csrep.autoflag ? `Auto-flagged: ${csrep.autoflag}` : ""
-    ].filter(Boolean);
+  function formatUpdatedAgo(timestamp) {
+    if (!Number.isFinite(timestamp)) return "";
+    const days = Math.floor((Date.now() - timestamp) / 86400000);
+    if (days <= 0) return "updated today";
+    return days === 1 ? "updated yesterday" : `updated ${days} days ago`;
+  }
+
+  function formatWhole(value) {
+    return Math.round(value).toLocaleString("en-US");
   }
 
   function getTrustWord(score) {
@@ -656,9 +692,32 @@
     return Number.isInteger(value) ? String(value) : value.toFixed(1);
   }
 
+  // Inventory value and CS2 playtime sit with account age: cheat accounts rarely have either.
+  function withAccountDetails(metric, csrep) {
+    if (metric.label !== "Account Age" || !csrep) return metric;
+    const extra = [
+      csrep.inventoryValue > 0 ? `Inventory value $${formatWhole(csrep.inventoryValue)}` : "",
+      csrep.cs2Hours > 0 ? `CS2 playtime ${formatWhole(csrep.cs2Hours)} h` : csrep.cs2Hours === 0 ? "CS2 playtime not public" : ""
+    ].filter(Boolean);
+    return extra.length ? { ...metric, tooltip: [metric.tooltip, ...extra].filter(Boolean).join("\n") } : metric;
+  }
 
+  // GamersClub and Cybershoke accounts, as small links under the ratings.
+  function renderPlatformLinks(platforms) {
+    const list = listOf(platforms).filter((platform) => platform?.name);
+    if (!list.length) return "";
 
-
+    return `
+      <div class="spx-platforms" role="list" aria-label="Other platforms">
+        ${list.map((platform) => {
+          const since = Number.isFinite(platform.since) ? `On ${platform.name} since ${new Date(platform.since).toLocaleDateString("en-US", { month: "short", year: "numeric" })}` : "";
+          return /^https:\/\//.test(String(platform.url || ""))
+            ? `<a class="spx-platform" role="listitem" href="${escapeAttribute(platform.url)}" target="_blank" rel="noopener noreferrer" data-spx-tip="${escapeAttribute(`${platform.name} profile`)}">${escapeHtml(platform.name)}<span aria-hidden="true">↗</span></a>`
+            : `<span class="spx-platform" role="listitem" tabindex="0"${since ? ` data-spx-tip="${escapeAttribute(since)}"` : ""}>${escapeHtml(platform.name)}</span>`;
+        }).join("")}
+      </div>
+    `;
+  }
 
   // "Played with banned": recent matches that had a player who was banned afterwards.
   function renderBannedLobbiesMetric(stats) {
@@ -780,7 +839,7 @@
     return metric?.label === "Premier" || metric?.label === "Peak Premier";
   }
 
-  function renderPremierMetric(metric) {
+  function renderPremierMetric(metric, seasons = []) {
     const isPeak = metric.label === "Peak Premier";
     const value = String(metric.value || "");
     const rating = parseInt(value.replace(/,/g, ""), 10);
@@ -789,14 +848,18 @@
     const other = otherMatch ? otherMatch[1] : "";
     const badge = `<span class="spx-premier-badge" data-spx-premier-tier="${tier}"><span class="spx-metric-value">${escapeHtml(value)}</span></span>`;
     const className = `spx-metric spx-metric-premier spx-premier-${tier}`;
+    // Each season's peak, newest first.
+    const seasonLines = listOf(seasons).map((entry) => `Season ${entry.season} peak ${formatWhole(entry.peak)}`);
 
     if (!other) {
-      return `<div class="${className}" data-spx-tip="${escapeAttribute(isPeak ? "Peak Premier" : "Premier rating")}">${badge}</div>`;
+      const tip = [isPeak ? "Peak Premier" : "Premier rating", ...seasonLines].join("\n");
+      return `<div class="${className}" data-spx-tip="${escapeAttribute(tip)}">${badge}</div>`;
     }
 
-    const tip = isPeak
-      ? `Peak Premier · click to show current (${other})`
-      : `Current Premier · click to show peak (${other})`;
+    const tip = [
+      isPeak ? `Peak Premier · click to show current (${other})` : `Current Premier · click to show peak (${other})`,
+      ...seasonLines
+    ].join("\n");
 
     return `
       <button type="button" class="${className}" data-spx-premier-toggle="1" data-spx-focus="premier" aria-pressed="${isPeak ? "true" : "false"}"
@@ -1367,6 +1430,264 @@
     state.medals = { list: [], key: "", start: 0, count: 0, slots: [], listBudget: 0, signature: "", observer: null };
   }
 
+  // ── Friends ───────────────────────────────────────
+  // Bans come from Steam for every friend at once. Trust fills in from what the stats server already
+  // has (free), then, on the friends page, for tiles as they scroll into view (within the server's
+  // bulk allowance). The profile section never starts new lookups.
+
+  // The signed-in Steam account, so a FACEIT match room can tell which team is yours.
+  function rememberMySteamId() {
+    for (const script of document.querySelectorAll("script:not([src])")) {
+      const match = script.textContent.match(/g_steamID\s*=\s*"(\d{17})"/);
+      if (match) {
+        chrome.storage.local.set({ spxMySteamId: match[1] }).catch(() => {});
+        return match[1];
+      }
+    }
+    return null;
+  }
+
+  // banned / flagged (trust under 50 or auto-flagged) / low (50–79) / trusted (80+) / "" unknown.
+  function getFriendBand(ban, trust) {
+    if (ban) return "banned";
+    if (!trust) return "";
+    if (trust.autoflag || trust.score < 50) return "flagged";
+    return trust.score < 80 ? "low" : "trusted";
+  }
+
+  function countFriendBands(ids, bans, trust) {
+    const counts = { friends: ids.length, trusted: 0, low: 0, flagged: 0, banned: 0, checked: 0 };
+    for (const id of ids) {
+      const band = getFriendBand(bans[id], trust[id]);
+      if (band) counts[band] += 1;
+      if (id in trust) counts.checked += 1;
+    }
+    return counts;
+  }
+
+  function renderFriendTag(ban, trust) {
+    if (ban) {
+      const label = ban.vac ? "VAC" : "Game ban";
+      const tip = [ban.vac ? `${ban.vac} VAC ban${ban.vac === 1 ? "" : "s"}` : "", ban.game ? `${ban.game} game ban${ban.game === 1 ? "" : "s"}` : "",
+        Number.isFinite(ban.daysSince) ? `last ${formatWhole(ban.daysSince)} day${ban.daysSince === 1 ? "" : "s"} ago` : ""].filter(Boolean).join(" · ");
+      return `<span class="spx-friend-tag spx-friend-banned" tabindex="0" data-spx-tip="${escapeAttribute(tip)}">${label}</span>`;
+    }
+    if (trust) {
+      const shown = formatTrustScore(trust.score);
+      const tip = [`Trust score ${shown} / 100 · ${getTrustWord(trust.score)}`, trust.autoflag ? `Auto-flagged: ${trust.autoflag}` : ""].filter(Boolean).join("\n");
+      return `<span class="spx-friend-tag spx-trust-${getTrustBand(trust.score)}" tabindex="0" data-spx-tip="${escapeAttribute(tip)}" aria-label="${escapeAttribute(tip)}">${renderTrustRing(trust.score, 14, 2.4)}${shown}</span>`;
+    }
+    if (trust === null) {
+      return `<span class="spx-friend-tag spx-friend-none" tabindex="0" data-spx-tip="No trust data for this player" aria-label="No trust data">–</span>`;
+    }
+    return "";
+  }
+
+  function renderFriendCounts(counts, { filterable = false, filter = "" } = {}) {
+    const cells = [
+      ["friends", "Friends", counts.friends],
+      ["trusted", "Trusted", counts.trusted],
+      ["low", "Low trust", counts.low],
+      ["flagged", "Flagged", counts.flagged],
+      ["banned", "Banned", counts.banned]
+    ].filter(([key]) => filterable || key !== "low");
+
+    return cells.map(([key, label, value]) => {
+      const body = `<span class="spx-friends-count-label">${label}</span><span class="spx-friends-count-value">${formatWhole(value)}</span>`;
+      return filterable && key !== "friends"
+        ? `<button type="button" class="spx-friends-count spx-friends-${key}" data-spx-friend-filter="${key}" aria-pressed="${filter === key}" ${value ? "" : "disabled"}>${body}</button>`
+        : `<div class="spx-friends-count spx-friends-${key}">${body}</div>`;
+    }).join("");
+  }
+
+  // ── Friends page (/friends/) ──
+
+  async function startFriendsPage() {
+    let list = null;
+    for (let attempt = 0; attempt < 40 && !list; attempt += 1) {
+      list = document.getElementById("search_results");
+      if (!list) await delay(250);
+    }
+    if (!list) return;
+
+    friendsPage.list = list;
+    for (const tile of list.querySelectorAll(FRIEND_TILE)) {
+      friendsPage.tiles.set(tile.dataset.steamid, tile);
+    }
+    const ids = [...friendsPage.tiles.keys()];
+    if (!ids.length) return;
+
+    mountFriendsSummary(list);
+    renderFriendsPage();
+
+    const [bans, trust] = await Promise.all([
+      chrome.runtime.sendMessage({ type: "SPX_GET_BANS", ids }).catch(() => null),
+      chrome.runtime.sendMessage({ type: "SPX_GET_TRUST_BATCH", ids, mode: "cached" }).catch(() => null)
+    ]);
+    Object.assign(friendsPage.bans, bans?.bans || {});
+    Object.assign(friendsPage.trust, trust?.players || {});
+    renderFriendsPage();
+
+    // Look up the rest as their tiles come into view.
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const id = entry.target.dataset.steamid;
+        if (entry.isIntersecting && !(id in friendsPage.trust) && !friendsPage.bans[id]) {
+          friendsPage.queue.add(id);
+        }
+      }
+      scheduleFriendLookups();
+    }, { rootMargin: "200px 0px" });
+    friendsPage.tiles.forEach((tile) => observer.observe(tile));
+  }
+
+  function scheduleFriendLookups() {
+    if (friendsPage.timer || friendsPage.busy || !friendsPage.queue.size) return;
+    friendsPage.timer = setTimeout(lookUpQueuedFriends, 400);
+  }
+
+  async function lookUpQueuedFriends() {
+    friendsPage.timer = 0;
+    const ids = [...friendsPage.queue].slice(0, 40);
+    ids.forEach((id) => friendsPage.queue.delete(id));
+    if (!ids.length) return;
+
+    friendsPage.busy = true;
+    const response = await chrome.runtime.sendMessage({ type: "SPX_GET_TRUST_BATCH", ids, mode: "bulk" }).catch(() => null);
+    friendsPage.busy = false;
+    Object.assign(friendsPage.trust, response?.players || {});
+    renderFriendsPage();
+    if (!response?.ok || response.exhausted) {
+      // Allowance used up or the server is unreachable: stop asking on this page.
+      friendsPage.queue.clear();
+      return;
+    }
+    // The server checks a few new players per call; the rest go back in line (twice at most).
+    for (const id of ids) {
+      friendsPage.tries[id] = (friendsPage.tries[id] || 0) + 1;
+      if (!(id in friendsPage.trust) && friendsPage.tries[id] < 3) friendsPage.queue.add(id);
+    }
+    scheduleFriendLookups();
+  }
+
+  function mountFriendsSummary(list) {
+    let summary = document.getElementById(FRIENDS_SUMMARY_ID);
+    if (!summary) {
+      summary = document.createElement("div");
+      summary.id = FRIENDS_SUMMARY_ID;
+      summary.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-spx-friend-filter]");
+        if (!button) return;
+        const key = button.dataset.spxFriendFilter;
+        friendsPage.filter = friendsPage.filter === key ? "" : key;
+        renderFriendsPage();
+      });
+    }
+    const titleBar = list.parentElement?.querySelector(".profile_friends.title_bar");
+    (titleBar || list).insertAdjacentElement(titleBar ? "afterend" : "beforebegin", summary);
+  }
+
+  function renderFriendsPage() {
+    const ids = [...friendsPage.tiles.keys()];
+    const counts = countFriendBands(ids, friendsPage.bans, friendsPage.trust);
+
+    for (const [id, tile] of friendsPage.tiles) {
+      const ban = friendsPage.bans[id];
+      const trust = friendsPage.trust[id];
+      tile.dataset.spxBand = getFriendBand(ban, trust);
+      let badge = tile.querySelector(":scope > .spx-friend-badge");
+      const html = renderFriendTag(ban, trust);
+      if (!html) {
+        badge?.remove();
+        tile.classList.remove("spx-has-badge");
+        continue;
+      }
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.className = "spx-friend-badge";
+        tile.append(badge);
+      }
+      if (badge.innerHTML !== html) badge.innerHTML = html;
+      tile.classList.add("spx-has-badge");
+    }
+
+    if (friendsPage.filter && !counts[friendsPage.filter]) friendsPage.filter = "";
+    friendsPage.list.dataset.spxFilter = friendsPage.filter;
+    const summary = document.getElementById(FRIENDS_SUMMARY_ID);
+    if (summary) {
+      summary.innerHTML = `
+        <div class="spx-friends-counts">${renderFriendCounts(counts, { filterable: true, filter: friendsPage.filter })}</div>
+        <div class="spx-friends-hint">
+          <span>${friendsPage.filter ? "Click it again to show everyone" : "Click a number to show only those friends"}</span>
+          <span>Trust checked for ${formatWhole(counts.checked)} of ${formatWhole(counts.friends)}</span>
+        </div>
+      `;
+    }
+  }
+
+  // ── Friends section on your own profile ──
+
+  async function loadFriendsSection(root, profileUrl) {
+    const friendsUrl = `${String(profileUrl).replace(/\/+$/, "")}/friends/`;
+    const html = await fetch(friendsUrl, { credentials: "same-origin" }).then((response) => response.ok ? response.text() : "").catch(() => "");
+    const friendsList = parseFriendList(html);
+    if (!friendsList.length) {
+      setSection(root, "");
+      return;
+    }
+
+    const ids = friendsList.map((friend) => friend.steamId);
+    const [bans, trust] = await Promise.all([
+      chrome.runtime.sendMessage({ type: "SPX_GET_BANS", ids }).catch(() => null),
+      chrome.runtime.sendMessage({ type: "SPX_GET_TRUST_BATCH", ids, mode: "cached" }).catch(() => null)
+    ]);
+    setSection(root, renderFriendsSection(friendsList, bans?.bans || {}, trust?.players || {}, friendsUrl));
+  }
+
+  function parseFriendList(html) {
+    if (!html) return [];
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    return [...doc.querySelectorAll(FRIEND_TILE)].map((tile) => ({
+      steamId: tile.dataset.steamid,
+      name: (tile.querySelector(".friend_block_content")?.firstChild?.textContent || "").trim(),
+      avatar: tile.querySelector(".player_avatar img")?.getAttribute("src") || "",
+      url: tile.querySelector("a.selectable_overlay")?.getAttribute("href") || `https://steamcommunity.com/profiles/${tile.dataset.steamid}`
+    })).filter((friend) => /^\d{17}$/.test(friend.steamId));
+  }
+
+  // Banned friends first (most recent ban first), then the lowest trust scores.
+  function pickFriendsWorthALook(friendsList, bans, trust) {
+    const banned = friendsList.filter((friend) => bans[friend.steamId])
+      .sort((left, right) => (bans[left.steamId].daysSince ?? 1e9) - (bans[right.steamId].daysSince ?? 1e9));
+    const flagged = friendsList.filter((friend) => !bans[friend.steamId] && getFriendBand(null, trust[friend.steamId]) === "flagged")
+      .sort((left, right) => trust[left.steamId].score - trust[right.steamId].score);
+    return [...banned, ...flagged].slice(0, 5);
+  }
+
+  function renderFriendsSection(friendsList, bans, trust, friendsUrl) {
+    const counts = countFriendBands(friendsList.map((friend) => friend.steamId), bans, trust);
+    const picks = pickFriendsWorthALook(friendsList, bans, trust);
+    const rows = picks.map((friend) => `
+      <div class="spx-friend-row">
+        ${/^https:\/\//.test(friend.avatar) ? `<img class="spx-friend-avatar" src="${escapeAttribute(friend.avatar)}" width="32" height="32" alt="" loading="lazy" decoding="async" />` : `<span class="spx-friend-avatar"></span>`}
+        <a class="spx-friend-name" href="${escapeAttribute(friend.url)}">${escapeHtml(friend.name || friend.steamId)}</a>
+        ${renderFriendTag(bans[friend.steamId], trust[friend.steamId])}
+      </div>
+    `).join("");
+
+    return renderShell("Friends", `
+      <div class="spx-friends-section">
+        <div class="spx-friends-counts">${renderFriendCounts(counts)}</div>
+        <div class="spx-friends-label">Worth a look</div>
+        ${rows ? `<div class="spx-friends-list">${rows}</div>` : `<div class="spx-inline-note">Nobody stands out among the friends checked so far.</div>`}
+        <div class="spx-friends-foot">
+          <a class="spx-friends-all" href="${escapeAttribute(friendsUrl)}">See all ${formatWhole(counts.friends)} friends</a>
+          <span>Trust checked for ${formatWhole(counts.checked)} of ${formatWhole(counts.friends)}</span>
+        </div>
+      </div>
+    `);
+  }
+
   // ── Tooltip ───────────────────────────────────────
 
   function installTooltip() {
@@ -1433,7 +1754,9 @@
     const title = anchor.getAttribute("data-spx-tip-title") || "";
     const lines = String(anchor.getAttribute("data-spx-tip") || "").split("\n").map((line) => line.trim()).filter(Boolean);
     const note = anchor.getAttribute("data-spx-tip-note") || "";
-    if (!title && !lines.length) {
+    const alert = anchor.getAttribute("data-spx-tip-alert") || "";
+    const bars = parseTooltipBars(anchor.getAttribute("data-spx-tip-bars"));
+    if (!title && !lines.length && !bars.length) {
       hideTooltip();
       return;
     }
@@ -1441,6 +1764,8 @@
     const tooltip = ensureTooltip();
     const parts = [];
     if (title) parts.push(makeTooltipLine(title, "spx-tooltip-title"));
+    if (alert) parts.push(makeTooltipLine(alert, "spx-tooltip-alert"));
+    if (bars.length) parts.push(makeTooltipBars(bars));
     lines.forEach((line) => parts.push(makeTooltipLine(line, "spx-tooltip-line")));
     if (note) parts.push(makeTooltipLine(note, "spx-tooltip-note"));
     tooltip.replaceChildren(...parts);
@@ -1462,6 +1787,37 @@
     line.className = className;
     line.textContent = text;
     return line;
+  }
+
+  // [[label, 0–100], …] from data-spx-tip-bars.
+  function parseTooltipBars(raw) {
+    try {
+      return listOf(JSON.parse(raw || "[]")).filter((bar) => Array.isArray(bar) && Number.isFinite(bar[1]));
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  function makeTooltipBars(bars) {
+    const list = document.createElement("div");
+    list.className = "spx-tooltip-bars";
+    for (const [label, value] of bars) {
+      const row = document.createElement("div");
+      row.className = `spx-tooltip-bar spx-trust-${getTrustBand(value)}`;
+      const name = document.createElement("span");
+      name.textContent = String(label);
+      const track = document.createElement("span");
+      track.className = "spx-tooltip-track";
+      const fill = document.createElement("span");
+      fill.className = "spx-tooltip-fill";
+      fill.style.width = `${Math.max(0, Math.min(100, value))}%`;
+      track.append(fill);
+      const number = document.createElement("b");
+      number.textContent = String(value);
+      row.append(name, track, number);
+      list.append(row);
+    }
+    return list;
   }
 
   function positionTooltip(tooltip, anchor) {

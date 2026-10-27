@@ -406,6 +406,7 @@ app.use((req, res, next) => {
   next();
 });
 app.get("/providers/:provider/:steamId", require("./providers"));
+app.get("/trust", require("./providers").trustBatch);
 
 app.get("/", (_req, res) => {
   res.json({

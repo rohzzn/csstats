@@ -1,6 +1,6 @@
-# Chrome Web Store listing — CS Stats 1.2.3
+# Chrome Web Store listing — CS Stats 1.3.0
 
-Package: `dist/cs-stats-1.2.3.zip` (build with `python tools/build-zip.py`)
+Package: `dist/cs-stats-1.3.0.zip` (build with `python tools/build-zip.py`)
 
 ## Store images (all 24-bit PNG, no alpha)
 
@@ -16,7 +16,7 @@ Package: `dist/cs-stats-1.2.3.zip` (build with `python tools/build-zip.py`)
 
 ## Summary (132 characters max)
 
-Is this CS2 player any good, or cheating? See Premier, FACEIT ELO, a cheat verdict and recent matches on every Steam profile.
+Is this CS2 player any good, or cheating? Premier, FACEIT, a trust score and recent matches on Steam, plus FACEIT match previews.
 
 ## Description
 
@@ -29,12 +29,14 @@ CS Stats adds a Stats panel to every Steam profile, built in Steam's own style, 
 
 IS THIS PLAYER CHEATING?
 • A trust score from 0 to 100, or a clear verdict: Legit, Suspicious, Likely Cheating, VAC Banned or Game Banned
-• Hover to see why: time to damage, crosshair placement, headshot accuracy, aim rating, account age, FACEIT history and bans
+• Hover the trust score for its breakdown: statistical, anomalies and account flags, plus any auto-flag reason
+• Hover the verdict to see why: time to damage, crosshair placement, headshot accuracy, aim rating, account age, FACEIT history and bans
+• Inventory value and CS2 playtime with the account age: cheat accounts rarely have either
 • "Played with banned": how many of their last 100 matches had a player who was later banned
 
 HOW GOOD ARE THEY?
-• Premier rating in its in-game tier colour, peak or current with one click
-• FACEIT level and ELO, peak or current with one click
+• Premier rating in its in-game tier colour, peak or current with one click, with every season's peak on hover
+• FACEIT level and ELO, all-time peak or current with one click
 • Aim rating, K/D, win rate and their last 5 results
 • Time to damage, utility rating, account age and total matches across Premier, Competitive, Wingman and FACEIT
 • Wingman rank and competitive rank for every map
@@ -47,16 +49,25 @@ WHAT HAVE THEY BEEN PLAYING?
 • Their last 10 matches with map, mode, score and K-D, coloured by result
 • Their 12 best-rated Allstar clips: click one to watch it big or full screen, and flip through the rest
 
+YOUR FRIENDS
+• On your Steam friends list: a trust badge or ban tag on every friend, and counts of trusted, low-trust, flagged and banned friends (click one to show only those)
+• On your own profile: a Friends section with the friends worth a look
+
+FACEIT MATCH PREVIEW
+• Opens on top of every FACEIT match room: both teams with trust, peak Premier, peak FACEIT and each player's best map
+• Each team's chance to win, and a match prediction with both sides' best maps and the coin flips
+• Stays up after the veto, with the picked map highlighted; collapse it to one line any time
+
 USE IT IN-GAME
 In CS2, press Shift+Tab, open the web browser, go to csstats.rohan.my and click Add to Steam. From then on, every Steam profile you open in the overlay shows the stats.
 
 FEELS LIKE PART OF STEAM
 • Matches every Steam profile theme and works at any window size
-• Loads only on profile pages and caches results for a few minutes
+• Loads only on profiles, friends lists and FACEIT match rooms, and caches results for a few minutes
 • Two settings, peak or current for Premier and FACEIT, saved with your Chrome profile
 
 PRIVACY
-Stats come from Leetify, FACEIT, the Steam Web API, Allstar, csrep.gg (trust score) and the CS Stats server (for CS level, commendations and medals), looked up by the Steam ID of the profile you're viewing. Nothing about you is collected or stored.
+Stats come from Leetify, FACEIT, the Steam Web API, Allstar, csrep.gg (trust score) and the CS Stats server (for CS level, commendations and medals), looked up by the Steam IDs of the profile you're viewing, its friends on a friends list, or the players in a FACEIT match room. Nothing about you is collected or stored.
 
 A NOTE ON THE VERDICT
 It's an estimate from public stats, not proof. Great players can look suspicious and careful cheaters can look clean, so please don't harass or report anyone based on the verdict alone.
@@ -64,10 +75,13 @@ It's an estimate from public stats, not proof. Great players can look suspicious
 CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT, Allstar or csrep.gg.
 ```
 
-## What's new in 1.2.3
+## What's new in 1.3.0
 
 ```
-• Trust score on every profile: a 0–100 fair-play rating with the details on hover (bans still show first)
+• Trust score on every profile: a 0–100 fair-play rating with its breakdown on hover (bans still show first)
+• FACEIT match preview on top of every match room: trust, peak ratings, best maps, win chance and a map prediction
+• Friends: trust badges and ban tags on your friends list, and a Friends section on your own profile
+• Inventory value and CS2 playtime with account age, Premier peaks for every season, and the all-time FACEIT peak
 ```
 
 ## What's new in 1.2.2
@@ -109,24 +123,24 @@ Category: Tools (or Fun). Language: English.
 
 ## Single purpose
 
-Shows Counter-Strike 2 statistics for the player whose Steam Community profile you are viewing, directly on that profile page.
+Shows Counter-Strike 2 player statistics where you look players up: on Steam Community profiles and friends lists, and for the ten players in a FACEIT match room.
 
 ## Permission justifications
 
-- **storage**: saves two display preferences (Premier and FACEIT ELO: peak or current).
-- **https://steamcommunity.com/\***: the content script runs on Steam Community profile pages to show the stats.
+- **storage**: saves two display preferences (Premier and FACEIT ELO: peak or current), and, on this device only, the Steam ID you're signed in to Steam Community with, so a FACEIT match preview can mark your team.
+- **https://steamcommunity.com/\***: the content script runs on Steam Community profile and friends pages to show the stats.
 - **https://api.steampowered.com/\***: Steam Web API for account creation date and VAC / game ban status.
 - **https://api-public.cs-prod.leetify.com/\***: Leetify public API for ratings, ranks and recent matches.
 - **https://open.faceit.com/\***: FACEIT Data API for level, ELO and lifetime stats.
-- **https://www.faceit.com/\***: FACEIT match history, used to find the peak ELO.
+- **https://www.faceit.com/\***: FACEIT match history, used to find the peak ELO, and a content script on FACEIT match rooms that shows the match preview.
 - **https://a1.allstar.gg/\***: Allstar API for the player's CS2 clips.
 - **http://127.0.0.1/\***, **http://localhost/\***: optional self-hosted Game Coordinator server run by the user (CS level, commendations, medals).
 - **https://csstats.rohan.my** (no host permission; the server allows the extension via CORS): the public CS Stats Game Coordinator server for CS level, commendations and medals. Only the viewed profile's Steam64 ID is sent.
-- **web_accessible_resources** `icon48.png` for `https://csstats.rohan.my/*`: lets the install page show "installed and on". No permission prompt.
+- **web_accessible_resources** `icon48.png` for `https://csstats.rohan.my/*`: lets the install page show "installed and on". `match.css`, FACEIT level and Premier badge images for `https://www.faceit.com/*`: the match preview's styles and badges. No permission prompt.
 - **Remote code**: none. All code ships in the package.
 
 ## Data usage (privacy practices tab)
 
-- The extension reads the Steam64 ID of the profile page being viewed and sends it to the services above (including the CS Stats server at csstats.rohan.my) to look up that player's public stats.
-- It does not collect, store or transmit personal data about the person using the extension. Only the two display preferences are saved, in Chrome sync storage.
+- The extension reads the Steam64 IDs of the profile being viewed, of its friends on a friends page, or of the players in a FACEIT match room, and sends them to the services above (including the CS Stats server at csstats.rohan.my) to look up those players' public stats.
+- It does not collect, store or transmit personal data about the person using the extension. The two display preferences are saved in Chrome sync storage, and the signed-in Steam ID is kept only in local storage on the device to mark your team in match previews; it is never sent anywhere.
 - No data is sold, used for advertising, or used for creditworthiness.

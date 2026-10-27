@@ -31,15 +31,23 @@ const VERDICT_DISCLAIMER = "Estimate from public stats, not proof.";
 const providerCache = new Map();
 const inflightRequests = new Map();
 
+const MESSAGE_HANDLERS = Object.freeze({
+  SPX_GET_PROFILE_BUNDLE: (message) => buildProfileBundle(message),
+  SPX_GET_TRUST_BATCH: (message) => getTrustBatch(message),
+  SPX_GET_BANS: (message) => getBans(message),
+  SPX_GET_MATCH_PREVIEW: (message) => getMatchPreview(message)
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "SPX_GET_PROFILE_BUNDLE") {
-    buildProfileBundle(message)
-      .then((payload) => sendResponse(payload))
-      .catch((error) => sendResponse({ ok: false, error: error.message }));
-    return true;
+  const handler = MESSAGE_HANDLERS[message?.type];
+  if (!handler) {
+    return false;
   }
 
-  return false;
+  handler(message)
+    .then((payload) => sendResponse(payload))
+    .catch((error) => sendResponse({ ok: false, error: error.message }));
+  return true;
 });
 
 async function buildProfileBundle(message) {
@@ -62,7 +70,7 @@ async function buildProfileBundle(message) {
     csrep:   () => getCachedProvider("csrep",   steamId, settings, force, () => fetchCsrepData(steamId, settings))
   };
 
-  const providers = await Promise.all(
+  const providers = withAllTimePeaks(await Promise.all(
     PROVIDER_ORDER.map(async (providerId) => {
       try {
         return await providerTasks[providerId]();
@@ -72,7 +80,7 @@ async function buildProfileBundle(message) {
         });
       }
     })
-  );
+  ));
 
   try {
     providers.push(buildInsightsProvider(providers, Date.now()));
@@ -116,6 +124,36 @@ function applyUserSettingsToProviders(providers, userSettings) {
     }
 
     return nextProvider;
+  });
+}
+
+// The trust data keeps all-time peaks: FACEIT (ours covers the last 1,000 games at most) and every
+// Premier season (Leetify's covers the current one). Show the higher of each. Cached provider objects
+// are copied, never changed.
+function withAllTimePeaks(providers) {
+  const csrep = providers.find((provider) => provider?.id === "csrep" && provider.state === "ready");
+  const faceitPeak = asNumber(csrep?.faceitPeak);
+  const premierPeak = Math.max(0, ...(Array.isArray(csrep?.premierSeasons) ? csrep.premierSeasons : []).map((entry) => entry.peak || 0));
+
+  return providers.map((provider) => {
+    if (provider?.state !== "ready") {
+      return provider;
+    }
+
+    if (provider.id === "faceit" && faceitPeak !== null && faceitPeak > (asNumber(provider.peakElo) || asNumber(provider.elo) || 0)) {
+      return { ...provider, peakElo: faceitPeak, peakEloScope: "all-time peak" };
+    }
+
+    if (provider.id === "leetify" && premierPeak > 0) {
+      const metrics = (Array.isArray(provider.metrics) ? provider.metrics : []).map((metric) => {
+        if (metric?.label !== "Premier") return metric;
+        const known = asNumber(resolvePeakPremierValue(metric)) || asNumber(metric.value) || 0;
+        return premierPeak > known ? { ...metric, tooltip: `Peak Premier: ${formatInteger(premierPeak)}` } : metric;
+      });
+      return { ...provider, metrics };
+    }
+
+    return provider;
   });
 }
 
@@ -1093,23 +1131,341 @@ async function fetchCsrepData(steamId, settings) {
   return makeProviderResult("csrep", "not_found", {});
 }
 
-// Only the trust rating is used; nothing else from the profile is kept.
-function normalizeCsrepData({ player }, steamId) {
+// The trust rating, plus the account and rank details shown around it in the Stats panel.
+function normalizeCsrepData({ player }) {
   const reputation = player?.reputation || {};
   const score = asNumber(reputation.trust_score);
   if (score === null) {
     return makeProviderResult("csrep", "not_found", {});
   }
 
+  const breakdown = reputation.breakdown || {};
+  const ranks = player?.ranks || {};
+  const premierSeasons = Object.entries(ranks)
+    .map(([name, rank]) => ({ season: Number((name.match(/^premier:season(\d+)$/) || [])[1]) || 0, peak: asNumber(rank?.peak) }))
+    .filter((entry) => entry.season > 0 && entry.peak > 0)
+    .sort((left, right) => right.season - left.season);
+
   return makeProviderResult("csrep", "ready", {
-    url: `https://csrep.gg/player/${steamId}`,
     trust: {
       score,
       statistical: asNumber(reputation.statistical_trust),
-      accountFlags: asNumber(reputation.breakdown?.account_flags)
+      anomalies: asNumber(breakdown.anomalies),
+      accountFlags: asNumber(breakdown.account_flags),
+      accountBonus: asNumber(reputation.account_bonus)
     },
-    autoflag: player?.autoflag ? String(player.autoflag.reason || player.autoflag.label || player.autoflag) : null
+    autoflag: describeAutoflag(player?.autoflag),
+    refreshedAt: Date.parse(player?.refreshed_at || "") || null,
+    inventoryValue: asNumber(player?.inventory_value),
+    cs2Hours: asNumber(player?.cs2_hours),
+    faceitPeak: asNumber(ranks.faceit?.peak),
+    premierSeasons,
+    platforms: resolveOtherPlatforms(player)
   });
+}
+
+function describeAutoflag(autoflag) {
+  if (!autoflag) {
+    return null;
+  }
+  const text = typeof autoflag === "object" ? autoflag.reason || autoflag.label : autoflag;
+  return text ? String(text) : null;
+}
+
+// GamersClub has a profile link; Cybershoke only a sign-up date.
+function resolveOtherPlatforms(player) {
+  const gamersclub = String(player?.gamersclub_url || "").replace("{lang}", "en");
+  const cybershoke = Date.parse(player?.cybershoke_registered_at || "");
+  return compact([
+    player?.gamersclub_id && /^https:\/\/([a-z0-9-]+\.)*gamersclub\.[a-z.]+\//i.test(gamersclub) ? { name: "GamersClub", url: gamersclub } : null,
+    Number.isFinite(cybershoke) ? { name: "Cybershoke", since: cybershoke } : null
+  ]);
+}
+
+// ── Many players at once: friends lists and match rooms ──
+
+const TRUST_BATCH_SIZE = 100;
+const STEAM_BANS_BATCH_SIZE = 100;
+
+async function fetchStatsServer(path, timeoutMs) {
+  for (const serverUrl of SETTINGS.gcServerUrls.map((url) => url.replace(/\/+$/, ""))) {
+    if ((gcServerDownUntil.get(serverUrl) || 0) > Date.now()) continue;
+    try {
+      return await fetchJson(`${serverUrl}${path}`, { headers: { Accept: "application/json" } }, timeoutMs);
+    } catch (_error) {
+      // Unreachable or an older server without this route: try the next one.
+    }
+  }
+  return null;
+}
+
+function uniqueSteamIds(list) {
+  return [...new Set((Array.isArray(list) ? list : []).map(String).filter((id) => /^\d{17}$/.test(id)))];
+}
+
+// players[id] is { score, autoflag, faceitPeak, premierPeak }, null when there is no trust data,
+// and absent when the server didn't look the player up. "bulk" may start new lookups within the
+// server's bulk allowance; "cached" only reads what the server already has and costs nothing.
+async function getTrustBatch(message) {
+  const ids = uniqueSteamIds(message?.ids);
+  const mode = message?.mode === "bulk" ? "bulk" : "cached";
+  const players = {};
+  let unchecked = 0;
+  let exhausted = false;
+
+  for (let index = 0; index < ids.length; index += TRUST_BATCH_SIZE) {
+    const chunk = ids.slice(index, index + TRUST_BATCH_SIZE);
+    const data = await fetchStatsServer(`/trust?ids=${chunk.join(",")}&mode=${mode}`, 20000);
+    if (!data?.ok) {
+      unchecked += chunk.length;
+      exhausted = true;
+      continue;
+    }
+    for (const id of chunk) {
+      if (data.players && id in data.players) {
+        players[id] = normalizeTrustEntry(data.players[id]);
+      }
+    }
+    unchecked += Number(data.unchecked) || 0;
+    exhausted = exhausted || Boolean(data.exhausted);
+  }
+
+  // exhausted: no point asking again soon (allowance used up, or the server is unreachable).
+  return { ok: true, players, unchecked, exhausted };
+}
+
+function normalizeTrustEntry(entry) {
+  const score = asNumber(entry?.trust_score);
+  return score === null ? null : {
+    score,
+    autoflag: entry.autoflag ? String(entry.autoflag) : null,
+    faceitPeak: asNumber(entry.faceit_peak),
+    premierPeak: asNumber(entry.premier_peak)
+  };
+}
+
+// VAC and game bans, 100 players per Steam Web API call. bans[id] is null for a clean record.
+async function getBans(message) {
+  const ids = uniqueSteamIds(message?.ids);
+  const bans = {};
+
+  for (let index = 0; index < ids.length; index += STEAM_BANS_BATCH_SIZE) {
+    const chunk = ids.slice(index, index + STEAM_BANS_BATCH_SIZE);
+    const data = await fetchJson(`https://api.steampowered.com/ISteamUser/GetPlayerBans/v1/?key=${SETTINGS.steamApiKey}&steamids=${chunk.join(",")}`).catch(() => null);
+    for (const player of Array.isArray(data?.players) ? data.players : []) {
+      const vac = asNumber(player.NumberOfVACBans) || 0;
+      const game = asNumber(player.NumberOfGameBans) || 0;
+      bans[player.SteamId] = vac || game || player.VACBanned ? { vac, game, daysSince: asNumber(player.DaysSinceLastBan) } : null;
+    }
+  }
+
+  return { ok: true, bans };
+}
+
+// ── FACEIT match preview ──
+
+const FACEIT_PLAYER_TTL_MS = 10 * 60 * 1000;
+const MAP_MIN_MATCHES = 5;
+const COIN_FLIP_POINTS = 3;
+const faceitPlayerCache = new Map();
+
+async function getMatchPreview(message) {
+  const matchId = String(message?.matchId || "");
+  if (!/^1-[0-9a-f-]{36}$/i.test(matchId)) {
+    return { ok: false, error: "Not a FACEIT match room." };
+  }
+
+  const headers = { Accept: "application/json", Authorization: `Bearer ${SETTINGS.faceitApiKey}` };
+  const match = await fetchJson(`https://open.faceit.com/data/v4/matches/${matchId}`, { headers });
+  const factions = ["faction1", "faction2"].map((id) => ({ id, team: match?.teams?.[id] }));
+  if (factions.some(({ team }) => !Array.isArray(team?.roster) || !team.roster.length)) {
+    return { ok: false, error: "The teams aren't set yet." };
+  }
+
+  const roster = factions.flatMap(({ id, team }) => team.roster.map((player) => ({ ...player, faction: id })));
+  const steamIds = uniqueSteamIds(roster.map((player) => player.game_player_id));
+  const [details, trust, bans] = await Promise.all([
+    mapWithLimit(roster, 4, (player) => getFaceitPlayerDetails(player.player_id, headers)),
+    getTrustBatch({ ids: steamIds, mode: "bulk" }),
+    getBans({ ids: steamIds })
+  ]);
+
+  const pool = resolveMapPool(match, details);
+  const pickedKey = normalizeMapKey(match?.voting?.map?.pick?.[0]);
+  const players = roster.map((player, index) => buildPreviewPlayer(player, details[index], trust.players, bans.bans, pool));
+  const teams = factions.map(({ id, team }) => buildPreviewTeam(id, team, players.filter((player) => player.faction === id), pool));
+  const prediction = pool.map((map) => buildMapPrediction(map, teams, pickedKey));
+
+  return {
+    ok: true,
+    matchId,
+    status: String(match.status || "").toUpperCase(),
+    mode: String(match.competition_name || ""),
+    map: prediction.find((entry) => entry.picked)?.name || (pickedKey ? prettyMapName(pickedKey) : null),
+    teams,
+    winChance: computeWinChance(teams, prediction.find((entry) => entry.picked)),
+    prediction
+  };
+}
+
+async function mapWithLimit(items, limit, task) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await task(items[index]).catch(() => null);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+async function getFaceitPlayerDetails(playerId, headers) {
+  if (!playerId) {
+    return null;
+  }
+
+  const cached = faceitPlayerCache.get(playerId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
+  const base = `https://open.faceit.com/data/v4/players/${encodeURIComponent(playerId)}`;
+  const [player, stats] = await Promise.all([
+    fetchJson(base, { headers }).catch(() => null),
+    fetchJson(`${base}/stats/cs2`, { headers }).catch(() => null)
+  ]);
+  const maps = {};
+  for (const segment of Array.isArray(stats?.segments) ? stats.segments : []) {
+    if (segment?.type !== "Map" || (segment.mode && segment.mode !== "5v5")) continue;
+    const key = normalizeMapKey(segment.label);
+    const matches = asNumber(segment.stats?.Matches) ?? asNumber(segment.stats?.["Total Matches"]) ?? 0;
+    if (key && matches > 0) {
+      maps[key] = { name: String(segment.label), matches, wins: asNumber(segment.stats?.Wins) || 0 };
+    }
+  }
+
+  const value = { elo: asNumber(player?.games?.cs2?.faceit_elo), maps };
+  faceitPlayerCache.set(playerId, { value, expiresAt: Date.now() + FACEIT_PLAYER_TTL_MS });
+  return value;
+}
+
+// "de_dust2", "Dust2" and "Dust 2" are the same map.
+function normalizeMapKey(name) {
+  return String(name || "").toLowerCase().replace(/^(de|cs)_/, "").replace(/[^a-z0-9]/g, "");
+}
+
+function prettyMapName(key) {
+  return key ? key.charAt(0).toUpperCase() + key.slice(1) : "";
+}
+
+// The room's own map pool; when FACEIT lists fewer than three maps, add the maps these ten play most.
+function resolveMapPool(match, details) {
+  const listed = (Array.isArray(match?.voting?.map?.entities) ? match.voting.map.entities : [])
+    .map((entity) => ({ key: normalizeMapKey(entity.class_name || entity.game_map_id || entity.name), name: String(entity.name || "") }))
+    .filter((map) => map.key);
+  if (listed.length >= 3) {
+    return listed.map((map) => ({ ...map, name: map.name || prettyMapName(map.key) }));
+  }
+
+  const totals = new Map();
+  for (const detail of details) {
+    for (const [key, record] of Object.entries(detail?.maps || {})) {
+      const entry = totals.get(key) || { key, name: record.name, matches: 0 };
+      entry.matches += record.matches;
+      totals.set(key, entry);
+    }
+  }
+  const played = [...totals.values()].sort((left, right) => right.matches - left.matches).slice(0, 7);
+  const playedKeys = new Set(played.map((map) => map.key));
+  return [...listed.filter((map) => !playedKeys.has(map.key)), ...played]
+    .map(({ key, name }) => ({ key, name: name || prettyMapName(key) }));
+}
+
+function buildPreviewPlayer(player, detail, trustPlayers, bans, pool) {
+  const steamId = /^\d{17}$/.test(String(player.game_player_id || "")) ? String(player.game_player_id) : null;
+  const trust = steamId && trustPlayers && steamId in trustPlayers ? trustPlayers[steamId] : undefined;
+  const elo = asNumber(detail?.elo);
+  const maps = {};
+  let bestMap = null;
+  for (const { key, name } of pool) {
+    const record = detail?.maps?.[key];
+    if (!record) continue;
+    maps[key] = { wins: record.wins, matches: record.matches };
+    const winRate = Math.round((record.wins / record.matches) * 100);
+    if (record.matches >= MAP_MIN_MATCHES && (!bestMap || winRate > bestMap.winRate)) {
+      bestMap = { name, winRate, matches: record.matches };
+    }
+  }
+
+  return {
+    faction: player.faction,
+    nickname: String(player.nickname || ""),
+    avatar: /^https:\/\//.test(String(player.avatar || "")) ? player.avatar : "",
+    steamId,
+    elo,
+    faceitPeak: Math.max(elo || 0, trust?.faceitPeak || 0) || null,
+    premierPeak: trust?.premierPeak || null,
+    // undefined: not looked up yet; null: no trust data for this player.
+    trust: trust === undefined ? undefined : trust && { score: trust.score, autoflag: trust.autoflag },
+    ban: steamId && bans ? bans[steamId] || null : null,
+    bestMap,
+    maps
+  };
+}
+
+function averageOf(values) {
+  const list = values.filter((value) => Number.isFinite(value) && value > 0);
+  return list.length ? Math.round(list.reduce((sum, value) => sum + value, 0) / list.length) : null;
+}
+
+function buildPreviewTeam(id, team, players, pool) {
+  const maps = {};
+  for (const { key } of pool) {
+    const records = players.map((player) => player.maps[key]).filter(Boolean);
+    const matches = records.reduce((sum, record) => sum + record.matches, 0);
+    if (matches > 0) {
+      maps[key] = { wins: records.reduce((sum, record) => sum + record.wins, 0), matches };
+    }
+  }
+
+  return {
+    id,
+    name: String(team?.name || "").replace(/^team_/, "Team "),
+    players: players.map(({ maps: _maps, ...player }) => player),
+    avgElo: averageOf(players.map((player) => player.elo)),
+    avgPeakFaceit: averageOf(players.map((player) => player.faceitPeak)),
+    avgPeakPremier: averageOf(players.map((player) => player.premierPeak)),
+    maps
+  };
+}
+
+// Each side's win rate on the map; within COIN_FLIP_POINTS of each other it's a coin flip.
+function buildMapPrediction(map, teams, pickedKey) {
+  const rates = teams.map((team) => {
+    const record = team.maps[map.key];
+    return record && record.matches >= MAP_MIN_MATCHES * 2 ? Math.round((record.wins / record.matches) * 100) : null;
+  });
+  const edge = rates.some((rate) => rate === null)
+    ? null
+    : Math.abs(rates[0] - rates[1]) <= COIN_FLIP_POINTS ? "flip" : rates[0] > rates[1] ? teams[0].id : teams[1].id;
+  return { key: map.key, name: map.name, rates, edge, picked: map.key === pickedKey };
+}
+
+// Elo expectation from both rosters' average FACEIT Elo, nudged by both sides' record on the picked map.
+function computeWinChance(teams, picked) {
+  const [first, second] = teams;
+  if (!first.avgElo || !second.avgElo) {
+    return null;
+  }
+
+  let chance = 1 / (1 + 10 ** ((second.avgElo - first.avgElo) / 400));
+  if (picked && picked.rates.every((rate) => rate !== null) && picked.rates[0] + picked.rates[1] > 0) {
+    chance = chance * 0.75 + (picked.rates[0] / (picked.rates[0] + picked.rates[1])) * 0.25;
+  }
+  const percent = Math.min(95, Math.max(5, Math.round(chance * 100)));
+  return [percent, 100 - percent];
 }
 
 // Leetify flags every match that had a player who was banned afterwards.

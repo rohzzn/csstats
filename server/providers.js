@@ -14,9 +14,12 @@ const STALE_TTL_MS = 24 * 60 * 60 * 1000;
 const CSREP_TTL_MS = 12 * 60 * 60 * 1000;
 const CSREP_NOT_FOUND_TTL_MS = 12 * 60 * 60 * 1000;
 const CSREP_MONTHLY_LIMIT = Number(process.env.CSREP_MONTHLY_LIMIT) || 4800;
+// Bulk lookups (friends lists, match rooms; ?bulk=1) may only spend this share of the month,
+// so the profile trust score never runs dry because of them.
+const CSREP_BULK_SHARE = Number(process.env.CSREP_BULK_SHARE) || 0.5;
 const CSREP_USAGE_FILE = path.join(process.env.STEAM_STATE_DIR || __dirname, "csrep-usage.json");
 
-function reserveCsrepRequest() {
+function reserveCsrepRequest(bulk) {
   const month = new Date().toISOString().slice(0, 7);
   let usage = {month, count: 0};
   try {
@@ -25,9 +28,9 @@ function reserveCsrepRequest() {
   } catch (_error) {
     // First request this month, or no usage file yet.
   }
-  if (usage.count >= CSREP_MONTHLY_LIMIT) {
-    const error = new Error("CSRep monthly allowance used up");
-    error.status = 503;
+  if (usage.count >= (bulk ? Math.floor(CSREP_MONTHLY_LIMIT * CSREP_BULK_SHARE) : CSREP_MONTHLY_LIMIT)) {
+    const error = new Error(bulk ? "CSRep bulk allowance used up" : "CSRep monthly allowance used up");
+    error.status = bulk ? 429 : 503;
     throw error;
   }
   usage.count += 1;
@@ -63,7 +66,7 @@ function credential(name) {
   return process.env[name];
 }
 
-async function load(provider, steamId) {
+async function load(provider, steamId, {bulk = false} = {}) {
   if (provider === "steam") {
     const key = encodeURIComponent(credential("STEAM_WEB_API_KEY"));
     const base = "https://api.steampowered.com";
@@ -99,7 +102,7 @@ async function load(provider, steamId) {
   }
   if (provider === "csrep") {
     const apiKey = credential("CSREP_API_KEY");
-    reserveCsrepRequest();
+    reserveCsrepRequest(bulk);
     const response = await json(`https://csrep.gg/api/players/${steamId}`, {
       headers: {"X-API-Key": apiKey, Accept: "application/json", "User-Agent": "CSStats (+https://csstats.rohan.my)"}
     });
@@ -128,24 +131,33 @@ setInterval(() => {
   }
 }, 60 * 60 * 1000).unref();
 
-module.exports = async function providerRoute(req, res) {
-  const {provider, steamId} = req.params;
-  if (!/^[0-9]{17}$/.test(steamId) || !["steam", "faceit", "allstar", "leetify", "csrep"].includes(provider)) {
-    return res.status(400).json({ok: false, error: "Invalid provider or Steam ID"});
-  }
+function failure(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+// One provider answer for one player: fresh cache, then a shared in-flight request, then stale data
+// up to 24 hours old (csrep's caching limit as well as ours). cachedOnly never starts a request.
+async function resolveProvider(provider, steamId, {bulk = false, cachedOnly = false} = {}) {
   const key = `${provider}:${steamId}`;
-  const cached = cache.get(key);
   const now = Date.now();
-  const ttl = provider === "csrep" ? CSREP_TTL_MS : CACHE_TTL_MS;
-  res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=86400");
-  if (cached?.expiresAt > now) return res.json(cached.data);
-  if ((notFound.get(key) || 0) > now) return res.status(404).json({ok: false, error: "Profile not found"});
-  if (!pending.has(key)) {
-    if (pending.size >= 60) return res.status(503).json({ok: false, error: "Busy. Retry shortly."});
-    pending.set(key, load(provider, steamId).then((data) => {
+  const cached = cache.get(key);
+  if (cached?.expiresAt > now) return cached.data;
+  if ((notFound.get(key) || 0) > now) throw failure(404, "Profile not found");
+  const stale = cached?.cachedAt && now - cached.cachedAt <= STALE_TTL_MS ? cached.data : null;
+  if (cachedOnly) {
+    if (stale) return stale;
+    throw failure(404, "Not cached");
+  }
+  const pendingKey = bulk ? `${key}:bulk` : key;
+  if (!pending.has(pendingKey)) {
+    if (pending.size >= 60) throw failure(503, "Busy. Retry shortly.");
+    const ttl = provider === "csrep" ? CSREP_TTL_MS : CACHE_TTL_MS;
+    pending.set(pendingKey, load(provider, steamId, {bulk}).then((data) => {
       cache.delete(key);
       cache.set(key, {data, cachedAt: Date.now(), expiresAt: Date.now() + ttl});
-      while (cache.size > 2000) cache.delete(cache.keys().next().value);
+      while (cache.size > 4000) cache.delete(cache.keys().next().value);
       return data;
     }).catch((error) => {
       // Remember players csrep doesn't have, so repeat views don't spend the monthly allowance.
@@ -154,17 +166,89 @@ module.exports = async function providerRoute(req, res) {
         while (notFound.size > 5000) notFound.delete(notFound.keys().next().value);
       }
       throw error;
-    }).finally(() => pending.delete(key)));
+    }).finally(() => pending.delete(pendingKey)));
   }
-  // Stale data stays within 24 hours, csrep's caching limit as well as ours.
-  if (cached?.cachedAt && now - cached.cachedAt <= STALE_TTL_MS) {
-    pending.get(key).catch(() => {});
-    return res.json(cached.data);
+  if (stale) {
+    pending.get(pendingKey).catch(() => {});
+    return stale;
   }
+  return pending.get(pendingKey);
+}
+
+function hasAnswer(key, now) {
+  const cached = cache.get(key);
+  return (cached?.cachedAt && now - cached.cachedAt <= STALE_TTL_MS) || (notFound.get(key) || 0) > now;
+}
+
+function sendFailure(res, error) {
+  const status = [401, 403, 404, 429, 503].includes(error.status) ? error.status : 502;
+  res.status(status).json({ok: false, error: status === 404 ? "Profile not found" : "Provider unavailable. Retry shortly."});
+}
+
+module.exports = async function providerRoute(req, res) {
+  const {provider, steamId} = req.params;
+  if (!/^[0-9]{17}$/.test(steamId) || !["steam", "faceit", "allstar", "leetify", "csrep"].includes(provider)) {
+    return res.status(400).json({ok: false, error: "Invalid provider or Steam ID"});
+  }
+  res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=86400");
   try {
-    res.json(await pending.get(key));
+    res.json(await resolveProvider(provider, steamId, {
+      bulk: provider === "csrep" && req.query.bulk === "1",
+      // ?cached=1 answers from the cache only and never spends the allowance (a miss is a 404).
+      cachedOnly: provider === "csrep" && req.query.cached === "1"
+    }));
   } catch (error) {
-    const status = [401, 403, 404, 429, 503].includes(error.status) ? error.status : 502;
-    res.status(status).json({ok: false, error: status === 404 ? "Profile not found" : "Provider unavailable. Retry shortly."});
+    sendFailure(res, error);
   }
+};
+
+const TRUST_BATCH_MAX = 100;
+// New csrep lookups one batch may start; everything else answers from the cache.
+const TRUST_BATCH_NEW_MAX = 20;
+
+// Only what friends lists and match rooms show.
+function slimTrust(player) {
+  const reputation = player?.reputation || {};
+  const ranks = player?.ranks || {};
+  const premierPeaks = Object.entries(ranks)
+    .filter(([name]) => name.startsWith("premier:"))
+    .map(([, rank]) => Number(rank?.peak) || 0);
+  return {
+    trust_score: reputation.trust_score ?? null,
+    autoflag: player?.autoflag ? String(player.autoflag.reason || player.autoflag.label || player.autoflag) : null,
+    faceit_peak: Number(ranks.faceit?.peak) || null,
+    premier_peak: Math.max(0, ...premierPeaks) || null
+  };
+}
+
+// GET /trust?ids=<steam64>,<steam64>…[&mode=bulk]. players[id] is the trust data, null when csrep
+// has no profile, and missing when the player wasn't looked up (no cache and no budget left).
+module.exports.trustBatch = async function trustBatchRoute(req, res) {
+  const ids = [...new Set(String(req.query.ids || "").split(",").filter((id) => /^[0-9]{17}$/.test(id)))].slice(0, TRUST_BATCH_MAX);
+  if (!ids.length) return res.status(400).json({ok: false, error: "No Steam IDs"});
+  const lookup = req.query.mode === "bulk";
+  const now = Date.now();
+  const players = {};
+  const queue = [...ids];
+  let budget = TRUST_BATCH_NEW_MAX;
+  let exhausted = false;
+
+  async function worker() {
+    while (queue.length) {
+      const id = queue.shift();
+      const spend = lookup && !exhausted && budget > 0 && !hasAnswer(`csrep:${id}`, now);
+      if (spend) budget -= 1;
+      try {
+        players[id] = slimTrust((await resolveProvider("csrep", id, {bulk: true, cachedOnly: !spend})).player);
+      } catch (error) {
+        if (error.status === 404 && (spend || hasAnswer(`csrep:${id}`, Date.now()))) players[id] = null;
+        if (error.status === 429 || error.status === 503) exhausted = true;
+      }
+    }
+  }
+
+  await Promise.all(Array.from({length: 4}, worker));
+  res.set("Cache-Control", "no-store");
+  // exhausted: the bulk allowance is used up, so asking again this month won't help.
+  res.json({ok: true, players, unchecked: ids.filter((id) => !(id in players)).length, exhausted});
 };
