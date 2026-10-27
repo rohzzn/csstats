@@ -953,11 +953,11 @@ async function fetchLeetifyData(steamId, settings) {
 
   const profile = profileResult.value;
   if (!profile || typeof profile !== "object") {
-    return makeProviderResult("leetify", "error", { url: profileUrl, message: "Leetify is unavailable right now." });
+    return makeProviderResult("leetify", "error", { url: profileUrl, message: "Match stats are unavailable right now." });
   }
 
   if (isLeetifyPrivateProfile(profile)) {
-    return makeProviderResult("leetify", "error", { url: profileUrl, message: "This Leetify profile is private." });
+    return makeProviderResult("leetify", "error", { url: profileUrl, message: "This player's match stats are private." });
   }
 
   if (matchesResult.status === "rejected" && !isLeetifyMissingProfileError(matchesResult.reason)) {
@@ -1183,10 +1183,10 @@ const LEETIFY_SOURCE_ORDER = Object.freeze(["Premier", "Competitive", "Wingman",
 
 function describeLeetifyError(error) {
   if (error?.status === 403) {
-    return "This Leetify profile is private.";
+    return "This player's match stats are private.";
   }
 
-  return error?.status === 429 ? "Leetify is busy, try again in a minute." : "Leetify is unavailable right now.";
+  return error?.status === 429 ? "Too many lookups right now, try again in a minute." : "Match stats are unavailable right now.";
 }
 
 function isLeetifyPrivateProfile(profile) {
@@ -1552,13 +1552,13 @@ function buildInsightMetrics({ steam, leetify, totals, now }) {
 
   return compact([
     makeMetric("Time to Damage", reactionTimeMs !== null && reactionTimeMs > 0 ? `${Math.round(reactionTimeMs)}ms` : null, "", {
-      tooltip: "Average time from spotting an enemy to dealing damage (Leetify). Lower is faster."
+      tooltip: "Average time from spotting an enemy to dealing damage. Lower is faster."
     }),
     makeMetric("Total Matches", totals ? formatInteger(totals.total) : null, "", { tooltip: totals?.breakdown }),
     makeMetric("Account Age", created ? formatAccountAge(created, now) : null, "", {
       tooltip: created ? `Steam account created ${formatCalendarDate(created * 1000)}` : ""
     }),
-    makeMetric("Utility", formatDecimal(stats.utilityRating, 1), "", { tooltip: "Leetify utility rating (50 = average)" })
+    makeMetric("Utility", formatDecimal(stats.utilityRating, 1), "", { tooltip: "Utility rating (50 = average)" })
   ]);
 }
 
@@ -1573,7 +1573,7 @@ function resolveTotalMatches(leetifyStats, faceit) {
   const sources = Array.isArray(leetifyStats.sources) && leetifyStats.sources.length
     ? ` (${leetifyStats.sources.join(" · ")})`
     : "";
-  const leetifyPart = `Leetify ${formatInteger(leetifyTotal)}${sources}`;
+  const leetifyPart = `Match history ${formatInteger(leetifyTotal)}${sources}`;
 
   if (!faceitTotal) {
     return { total: leetifyTotal, breakdown: leetifyPart };
@@ -1741,13 +1741,13 @@ function resolveBanVerdict(inputs) {
 
 function describeLeetifyBan(ban) {
   if (typeof ban !== "object") {
-    return `${String(ban)} ban on record (Leetify)`;
+    return `${String(ban)} ban on record`;
   }
 
   const platform = String(ban.platform || ban.source || "").trim();
   const since = formatCalendarDate(ban.banned_since || ban.bannedSince || ban.created_at || "");
   const name = { faceit: "FACEIT", steam: "Steam", esea: "ESEA" }[platform.toLowerCase()] || platform;
-  return `${name ? `${name} ban` : "Ban"} on record (Leetify)${since ? ` · since ${since}` : ""}`;
+  return `${name ? `${name} ban` : "Ban"} on record${since ? ` · since ${since}` : ""}`;
 }
 
 function hasVerdictStats(inputs) {

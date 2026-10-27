@@ -73,7 +73,7 @@ CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT, Allstar or csrep.
 ## What's new in 1.2.2
 
 ```
-• Stats for every player Leetify has seen, not just Leetify members: far fewer "No Data" profiles
+• Stats for far more players: far fewer "No Data" profiles
 • Clips: the 12 best-rated clips, three rows
 • Commendations, CS level, Premier season medals and coins for everyone, no setup needed
 • Install page at csstats.rohan.my for Steam's in-game browser
@@ -95,7 +95,7 @@ CS Stats is not affiliated with Valve, Steam, Leetify, FACEIT, Allstar or csrep.
 • Redesigned Stats panel that lines up neatly at every screen size
 • Last 10 matches now show map names
 • Clips: the player's best-rated Allstar clips, in a big player with one-click full screen
-• Leetify stats and matches load again (moved to Leetify's new public API)
+• Ratings and recent matches load again
 • Much smaller download: about 23 MB, down from over 140 MB
 ```
 

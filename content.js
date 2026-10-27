@@ -669,8 +669,8 @@
     }
 
     const tip = count === 0
-      ? `None of their last ${sample} matches had a player who was later banned (Leetify).`
-      : `${count} of their last ${sample} matches had a player who was later banned (Leetify).`;
+      ? `None of their last ${sample} matches had a player who was later banned.`
+      : `${count} of their last ${sample} matches had a player who was later banned.`;
 
     return `
       <div class="spx-metric spx-metric-banned${count / sample >= 0.1 ? " spx-banned-high" : ""}" tabindex="0" role="group"
@@ -867,7 +867,7 @@
     const mapName = match.mapName || "Unknown map";
     const mode = match.mode || "Match";
     const hasKd = String(match.kills ?? "") !== "" || String(match.deaths ?? "") !== "";
-    const rating = match.rating ? `Leetify rating ${match.rating}` : "";
+    const rating = match.rating ? `Match rating ${match.rating}` : "";
     const tip = [mapName, mode, formatMatchDate(match.finishedAt), rating].filter(Boolean).join(" · ");
     const mapVisual = match.mapIcon
       ? `<img class="spx-match-map-icon" src="${escapeAttribute(match.mapIcon)}" width="34" height="34" alt="" loading="lazy" decoding="async" />`
