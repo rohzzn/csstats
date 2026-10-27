@@ -129,6 +129,36 @@ Shows Counter-Strike 2 player statistics where you look players up: on Steam Com
 
 ## Permission justifications
 
+Dashboard fields (Privacy tab), paste as-is. The host field allows 1,000 characters; this is 782.
+
+**storage justification**
+
+```
+saves two display preferences (Premier and FACEIT ELO: peak or current), and, on this device only, the Steam ID you're signed in to Steam Community with, so a FACEIT match preview can mark your team.
+```
+
+**Host permission justification**
+
+```
+steamcommunity.com: runs on Steam profile and friends pages to read the Steam64 IDs shown there and display the stats on the page.
+
+api.steampowered.com: account creation date and VAC / game ban status for those Steam IDs.
+
+open.faceit.com: FACEIT level, ELO and stats for a player, and the two teams in a FACEIT match room.
+
+www.faceit.com: the FACEIT match room page, where the match preview is shown, and FACEIT's match history, used for the peak ELO.
+
+api-public.cs-prod.leetify.com: Premier rating, performance stats, ranks and recent matches for a player.
+
+a1.allstar.gg: the player's CS2 clips.
+
+127.0.0.1 and localhost: an optional stats server the user can run on their own computer.
+
+Only Steam IDs of players being looked at are sent. Nothing about the user is collected.
+```
+
+Details per permission:
+
 - **storage**: saves two display preferences (Premier and FACEIT ELO: peak or current), and, on this device only, the Steam ID you're signed in to Steam Community with, so a FACEIT match preview can mark your team.
 - **https://steamcommunity.com/\***: the content script runs on Steam Community profile and friends pages to show the stats.
 - **https://api.steampowered.com/\***: Steam Web API for account creation date and VAC / game ban status.
